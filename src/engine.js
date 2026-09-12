@@ -39,6 +39,9 @@
     communityStatus: 'idle',   // 'idle' | 'ok' | 'error'
     reportSel: {},             // group key -> bool, for "add to the public list"
     reportStatus: null,        // null | 'sending' | { ok, totals } | { error }
+    cancel: false,             // set by the Stop button during a run
+    activeId: null,            // number currently being bounced
+    armed: false,              // second-click confirm when the selection includes non-promotional rows
     inject: 'idle',           // 'idle' | 'requested' | 'done' | 'failed'
     injectError: null,
   };
@@ -156,6 +159,7 @@
       const tick = () => {
         const s = status();
         if (s !== last) { last = s; render(); }
+        else if (pill) pill.hidden = state.open || loginScreen();   // the QR canvas appears after mount
         if (s === 'ready') return resolve(true);
         setTimeout(tick, 1000);
       };
@@ -213,11 +217,26 @@
     location: 'Location', vcard: 'Contact card', product: 'Product', order: 'Order', list: 'Message with options',
     buttons_response: 'Reply', list_response: 'Reply', poll_creation: 'Poll', revoked: 'Deleted message', ciphertext: 'Message',
   };
+  // Media messages keep their thumbnail as base64 in `body`; templates already have
+  // their text converted into `body`. System notices are not content at all.
+  const MEDIA_TYPES = new Set(['image', 'video', 'sticker', 'document', 'audio', 'ptt', 'gif']);
+  const NON_CONTENT = new Set(['notification_template', 'e2e_notification', 'gp2', 'call_log', 'protocol', 'revoked', 'ciphertext', 'notification']);
+  const looksLikeBlob = (t) => /^\/9j\//.test(t) || /^data:/.test(t) || (t.length > 80 && /^[A-Za-z0-9+/=\s]+$/.test(t));
+  const isContent = (m) => !NON_CONTENT.has(String(attrOf(m, 'type') || ''));
+  function msgText(m) {
+    if (!m) return '';
+    const type = String(attrOf(m, 'type') || '');
+    const caption = String(attrOf(m, 'caption') || '');
+    const body = String(attrOf(m, 'body') || '');
+    let t = MEDIA_TYPES.has(type) ? caption : (body || caption);
+    if (looksLikeBlob(t)) t = caption && !looksLikeBlob(caption) ? caption : '';
+    return t.replace(/\s+/g, ' ').trim();
+  }
   function previewOf(m) {
     if (!m) return { text: '', sys: false };
-    const body = attrOf(m, 'body') || attrOf(m, 'caption') || attrOf(m, 'text') || '';
     const type = String(attrOf(m, 'type') || '');
-    if (body && !/^\[.*\]$/.test(String(body).trim())) return { text: String(body).replace(/\s+/g, ' ').trim().slice(0, 140), sys: false };
+    const text = msgText(m);
+    if (text && !/^\[.*\]$/.test(text)) return { text: text.slice(0, 180), sys: false };
     return { text: TYPE_LABELS[type] || (type ? 'Message' : ''), sys: true };
   }
 
@@ -318,7 +337,7 @@
     try { return Array.isArray(hb) ? hb : (hb.toArray ? hb.toArray() : (hb.getModelsArray ? hb.getModelsArray() : [])); } catch (_) { return []; }
   }
   function textOf(m) {
-    const parts = [attrOf(m, 'body'), attrOf(m, 'caption'), attrOf(m, 'footer'), attrOf(m, 'title'), attrOf(m, 'description')];
+    const parts = [msgText(m), attrOf(m, 'footer'), attrOf(m, 'title'), attrOf(m, 'description')];
     for (const b of buttonsOf(m)) {
       try {
         const u = b.urlButton || b.callButton || b.quickReplyButton || b;
@@ -448,7 +467,9 @@
         const realTs = ts || (msgs.length ? attrOf(msgs[msgs.length - 1], 't') || 0 : 0);
         const inWindow = cutoff === 0 ? true : realTs >= cutoff;
         if (inWindow) stats.active++;
-        const inbound = msgs.filter((m) => isInbound(m) && (cutoff === 0 || (attrOf(m, 't') || 0) >= cutoff));
+        const inbound = msgs.filter((m) => isInbound(m) && isContent(m) && (cutoff === 0 || (attrOf(m, 't') || 0) >= cutoff));
+        const lastInbound = inbound[inbound.length - 1] || msgs.slice().reverse().find((m) => isInbound(m) && isContent(m)) || null;
+        const lastMsgId = lastInbound ? (attrOf(lastInbound, 'id') && (attrOf(lastInbound, 'id')._serialized || String(attrOf(lastInbound, 'id')))) : null;
 
         let bizByMsg = false, msgName = null;
         const cats = { marketing: 0, utility: 0, auth: 0, 'promo-guess': 0 };
@@ -482,7 +503,7 @@
 
         let blocked = false;
         try { blocked = !!(await W.blocklist.isBlocked(id)); } catch (_) {}
-        const pv = previewOf(inbound[inbound.length - 1] || msgs[msgs.length - 1]);
+        const pv = previewOf(lastInbound);
         // promo: WhatsApp-tagged marketing, or the contact carries the marketing-thread flag.
         // guess: no tag but the text reads like an ad. txn: utility/auth only. api: tagged nothing.
         const category = (cats.marketing || f.marketingThread) ? 'promo'
@@ -493,7 +514,7 @@
           id, phone, hash, name, kind: isBiz ? 'biz' : 'unknown', isApi, verified: !!f.verifiedName, category,
           optedOut: !!f.optedOut,
           known: known ? { name: known.name, people: known.people, numbers: known.numbers } : null,
-          ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow,
+          ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow, lastMsgId,
           msgs: inbound.length, preview: pv.text, previewSys: pv.sys,
         });
       }
@@ -733,6 +754,8 @@
     const STOP_CAP = 30;
     let stopsSent = 0;
     let reportDead = false;   // after the first report timeout, stop trying for this run
+    state.cancel = false;
+    sum.cancelled = 0;
     render();
 
     for (const g of targets) {
@@ -744,7 +767,9 @@
         ? (g.numbers.find((n) => !n.blocked && n.ts >= recent) || null)
         : null;
       for (const n of g.numbers) {
+        if (state.cancel) { n.result = { cancelled: true }; sum.cancelled++; continue; }
         n.result = {};
+        state.activeId = n.id;
         render();
 
         const label = (what) => { state.progress.biz = g.name; state.progress.phone = fmtPhone(n.phone); state.progress.step = what; render(); };
@@ -791,6 +816,7 @@
 
     sum.ts = nowSec();
     sum.days = state.days;
+    sum.businessesDone = targets.filter((g) => g.numbers.some((n) => n.result && !n.result.cancelled)).length;
     sum.reportDead = reportDead;
     sum.optoutDead = optoutDead;
     sum.top = targets
@@ -809,7 +835,19 @@
     state.results = sum;
     state.running = false;
     state.progress = null;
+    state.activeId = null;
+    state.cancel = false;
     render();
+  }
+
+  async function unblock(id) {
+    const W = window.WPP;
+    for (const g of state.groups) for (const n of g.numbers) if (n.id === id && n.result) {
+      try { await withTimeout(W.blocklist.unblockContact(id), ACTION_TIMEOUT_MS, 'unblock'); n.blocked = false; n.result.block = 'undone'; log('unblocked', id); }
+      catch (e) { log('unblock failed', id, String((e && e.message) || e)); }
+      render();
+      return;
+    }
   }
 
   // ------------------------------------------------------------- share card
@@ -889,12 +927,14 @@
   // ------------------------------------------------------------------ styles
   // The door list. A ledger, not a dashboard: hairlines instead of cards, one red
   // used as ink for the tally and the stamp, condensed numerals like a door counter.
+  // The sheet docks over WhatsApp's chat list, so a clicked row opens its
+  // conversation in full view to the right.
   const DISPLAY = '"Avenir Next Condensed", "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif';
   const CSS = `
   #bouncer-root { all: initial; font-family: ${FONT}; font-size: 13px; line-height: 1.45; color: #e9edef; position: fixed; z-index: 2147483000; -webkit-font-smoothing: antialiased;
     --ground: #111b21; --paper: #e9edef; --muted: #8696a0; --line: #2a3942; --ink: #e0332b; --ink-soft: rgba(224,51,43,.10); --ok: #25d366; --display: ${DISPLAY}; }
   #bouncer-root *, #bouncer-root *::before, #bouncer-root *::after { box-sizing: border-box; }
-  #bouncer-root button, #bouncer-root select, #bouncer-root input { font: inherit; color: inherit; }
+  #bouncer-root button, #bouncer-root input { font: inherit; color: inherit; }
   #bouncer-root button { cursor: pointer; border: 0; background: none; padding: 0; margin: 0; text-align: inherit; }
   #bouncer-root button:disabled { cursor: default; }
   #bouncer-root :focus-visible { outline: 2px solid var(--paper); outline-offset: 2px; }
@@ -908,8 +948,8 @@
   #bouncer-root .bz-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); flex: none; }
   #bouncer-root .bz-count { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 
-  /* sheet */
-  #bouncer-root .bz-panel { position: fixed; top: 0; right: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-left: 1px solid var(--line); box-shadow: -24px 0 60px rgba(0,0,0,.5); display: flex; flex-direction: column; transform: translateX(104%); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
+  /* sheet, docked over the chat list */
+  #bouncer-root .bz-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-right: 1px solid var(--line); box-shadow: 24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(-100% - 30px)); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
   #bouncer-root .bz-panel.open { transform: none; }
   #bouncer-root .bz-head { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
   #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 14px; }
@@ -918,58 +958,67 @@
   #bouncer-root .bz-x { width: 30px; height: 30px; color: var(--muted); font-size: 20px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
   #bouncer-root .bz-x:hover { color: var(--paper); }
   #bouncer-root .bz-body { flex: 1; overflow-y: auto; }
-  #bouncer-root .bz-foot { flex: none; padding: 12px 20px 16px; border-top: 1px solid var(--line); background: var(--ground); position: relative; }
+  #bouncer-root .bz-foot { flex: none; padding: 12px 20px 14px; border-top: 1px solid var(--line); background: var(--ground); position: relative; }
 
   /* hero */
-  #bouncer-root .bz-hero { padding: 22px 20px 12px; }
-  #bouncer-root .bz-big { font-family: var(--display); font-weight: 700; font-size: 84px; line-height: .86; letter-spacing: -.01em; color: var(--paper); font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-hero { padding: 18px 20px 0; }
+  #bouncer-root .bz-hero-row { display: flex; align-items: center; gap: 16px; }
+  #bouncer-root .bz-big { font-family: var(--display); font-weight: 700; font-size: 64px; line-height: .86; letter-spacing: -.01em; color: var(--paper); font-variant-numeric: tabular-nums; flex: none; }
   #bouncer-root .bz-big.ink { color: var(--ink); }
-  #bouncer-root .bz-lead { margin-top: 10px; font-size: 15px; line-height: 1.35; color: var(--paper); text-wrap: balance; }
+  #bouncer-root .bz-lead { font-size: 14.5px; line-height: 1.35; color: var(--paper); min-width: 0; }
+  #bouncer-root .bz-lead b { font-weight: 600; color: var(--paper); }
   #bouncer-root .bz-lead .m { color: var(--muted); }
-  #bouncer-root .bz-period { appearance: none; -webkit-appearance: none; background: transparent; border: 0; border-bottom: 1px solid var(--muted); border-radius: 0; color: var(--paper); font: inherit; padding: 0 0 1px; cursor: pointer; }
-  #bouncer-root .bz-period:hover { border-color: var(--paper); }
   #bouncer-root .bz-tabs { display: flex; align-items: baseline; gap: 18px; margin-top: 16px; }
-  #bouncer-root .bz-tabs button { padding: 0 0 6px; color: var(--muted); border-bottom: 2px solid transparent; }
-  #bouncer-root .bz-tabs button.on { color: var(--paper); border-color: var(--ink); }
+  #bouncer-root .bz-tabs > button { padding: 0 0 7px; color: var(--muted); border-bottom: 2px solid transparent; }
+  #bouncer-root .bz-tabs > button.on { color: var(--paper); border-color: var(--ink); }
   #bouncer-root .bz-tabs .sp { flex: 1; }
-  #bouncer-root .bz-tabs .sel { font-family: inherit; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; padding-bottom: 6px; }
-  #bouncer-root .bz-tabs .sel:hover { color: var(--paper); }
+  #bouncer-root .bz-seg { display: inline-flex; gap: 2px; align-self: center; padding-bottom: 5px; }
+  #bouncer-root .bz-seg button { font-family: var(--display); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; font-size: 11px; color: var(--muted); padding: 3px 7px; border-radius: 2px; border: 1px solid transparent; }
+  #bouncer-root .bz-seg button:hover { color: var(--paper); }
+  #bouncer-root .bz-seg button.on { color: var(--paper); border-color: var(--line); background: #182229; }
+  #bouncer-root .bz-toolbar { display: flex; align-items: center; gap: 10px; padding: 9px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  #bouncer-root .bz-toolbar .sp { flex: 1; }
+  #bouncer-root .bz-toolbar button { color: var(--muted); }
+  #bouncer-root .bz-toolbar button:hover { color: var(--paper); }
 
   /* ledger */
   #bouncer-root .bz-ledger { border-top: 1px solid var(--line); }
-  #bouncer-root .bz-row { display: grid; grid-template-columns: 16px 26px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 13px 20px 13px 17px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; transition: background .12s, opacity .12s; }
+  #bouncer-root .bz-row { display: grid; grid-template-columns: 16px 24px minmax(0, 1fr) auto; gap: 3px 12px; align-items: start; padding: 12px 18px 12px 17px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; transition: background .12s; }
   #bouncer-root .bz-row:hover { background: #151f26; }
   #bouncer-root .bz-row.on { border-left-color: var(--ink); background: var(--ink-soft); }
   #bouncer-root .bz-row.on:hover { background: rgba(224,51,43,.14); }
-  #bouncer-root .bz-row.off { opacity: .62; }
-  #bouncer-root .bz-row.done { opacity: 1; border-left-color: var(--ok); background: transparent; }
+  #bouncer-root .bz-row.active { border-left-color: var(--paper); }
+  #bouncer-root .bz-row.done { border-left-color: var(--ok); background: transparent; }
   #bouncer-root .bz-check { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; margin: 3px 0 0; border: 1.5px solid var(--muted); border-radius: 2px; background: transparent; cursor: pointer; position: relative; flex: none; }
   #bouncer-root .bz-check:checked { background: var(--ink); border-color: var(--ink); }
   #bouncer-root .bz-check:checked::after { content: ""; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
   #bouncer-root .bz-check:disabled { opacity: .5; cursor: default; }
-  #bouncer-root .bz-rank { font-family: var(--display); font-weight: 600; font-size: 15px; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-rank { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--muted); padding-top: 3px; font-variant-numeric: tabular-nums; }
   #bouncer-root .bz-main { min-width: 0; }
-  #bouncer-root .bz-name { font-weight: 600; font-size: 14px; color: var(--paper); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+  #bouncer-root .bz-row1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  #bouncer-root .bz-name { font-weight: 600; font-size: 14px; color: var(--paper); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #bouncer-root .bz-name:hover { text-decoration: underline; text-underline-offset: 3px; }
-  #bouncer-root .bz-lab { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 10.5px; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+  #bouncer-root .bz-lab { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 10.5px; color: var(--muted); white-space: nowrap; flex: none; }
   #bouncer-root .bz-lab.hot { color: var(--ink); }
   #bouncer-root .bz-lab.warn { color: #f5a623; }
-  #bouncer-root .bz-sub { color: var(--muted); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #bouncer-root .bz-sub .q { color: #aebac1; }
-  #bouncer-root .bz-sub .q.sys { font-style: italic; color: var(--muted); }
-  #bouncer-root .bz-more { margin-top: 4px; color: var(--muted); font-size: 12px; }
-  #bouncer-root .bz-more:hover { color: var(--paper); }
-  #bouncer-root .bz-tally { text-align: right; padding-top: 1px; }
-  #bouncer-root .bz-tally .n { font-family: var(--display); font-weight: 700; font-size: 28px; line-height: .9; color: var(--ink); font-variant-numeric: tabular-nums; }
-  #bouncer-root .bz-tally .l { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-size: 9px; color: var(--muted); margin-top: 3px; }
+  #bouncer-root .bz-msg { color: #cfd6da; font-size: 12.5px; line-height: 1.4; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  #bouncer-root .bz-msg.sys { color: var(--muted); font-style: italic; }
+  #bouncer-root .bz-meta { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bouncer-root .bz-meta button { color: var(--muted); }
+  #bouncer-root .bz-meta button:hover { color: var(--paper); }
+  #bouncer-root .bz-tally { text-align: right; padding-top: 2px; }
+  #bouncer-root .bz-tally b { display: block; font-family: var(--display); font-weight: 700; font-size: 28px; line-height: .9; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-tally small { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 8.5px; line-height: 1.2; color: var(--muted); margin-top: 4px; }
   #bouncer-root .bz-nums { grid-column: 2 / -1; display: grid; gap: 6px; margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
   #bouncer-root .bz-num { display: flex; align-items: baseline; gap: 10px; font-size: 12px; color: #aebac1; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
   #bouncer-root .bz-num > span:first-child { white-space: nowrap; }
   #bouncer-root .bz-num .when { color: var(--muted); white-space: nowrap; }
-  #bouncer-root .bz-num .st { margin-left: auto; display: flex; gap: 7px; white-space: nowrap; }
-  #bouncer-root .bz-st { font-family: var(--display); text-transform: uppercase; letter-spacing: .08em; font-size: 9.5px; font-weight: 600; color: var(--muted); }
+  #bouncer-root .bz-num .st { margin-left: auto; display: flex; gap: 8px; white-space: nowrap; align-items: baseline; }
+  #bouncer-root .bz-st { font-family: var(--display); text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; font-weight: 600; color: var(--muted); }
   #bouncer-root .bz-st.ok { color: var(--ok); }
   #bouncer-root .bz-st.bad { color: var(--ink); }
+  #bouncer-root .bz-undo { font-size: 11px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+  #bouncer-root .bz-undo:hover { color: var(--paper); }
   #bouncer-root .bz-section { padding: 14px 20px 0; }
   #bouncer-root .bz-link { color: var(--paper); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
   #bouncer-root .bz-link:hover { text-decoration-color: var(--paper); }
@@ -987,7 +1036,9 @@
   #bouncer-root .bz-btn.paper:hover:not(:disabled) { background: #fff; }
   #bouncer-root .bz-btn.ghost { background: transparent; color: var(--paper); border: 1px solid var(--line); }
   #bouncer-root .bz-btn.ghost:hover:not(:disabled) { border-color: var(--muted); }
-  #bouncer-root .bz-hint { margin-top: 9px; text-align: center; color: var(--muted); font-size: 12px; }
+  #bouncer-root .bz-btn.armed { background: #b8261f; }
+  #bouncer-root .bz-hint { margin-top: 9px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  #bouncer-root .bz-hint button { color: var(--paper); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
   #bouncer-root .bz-opts { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
   #bouncer-root .bz-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 11px; color: var(--muted); }
   #bouncer-root .bz-chip .dot { width: 9px; height: 9px; border: 1.5px solid var(--muted); border-radius: 1px; }
@@ -997,9 +1048,12 @@
   /* progress */
   #bouncer-root .bz-line { position: absolute; left: 0; top: -1px; height: 2px; width: 100%; background: var(--line); }
   #bouncer-root .bz-line > i { display: block; height: 100%; background: var(--ink); transition: width .25s ease; }
-  #bouncer-root .bz-prog { display: grid; gap: 4px; padding-top: 2px; }
-  #bouncer-root .bz-prog .t { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 14px; }
+  #bouncer-root .bz-prog { display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; align-items: center; padding-top: 2px; }
+  #bouncer-root .bz-prog .t { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #bouncer-root .bz-prog .s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-prog .stop { grid-row: 1 / span 2; height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 12px; color: var(--paper); }
+  #bouncer-root .bz-prog .stop:hover:not(:disabled) { border-color: var(--muted); }
+  #bouncer-root .bz-prog .stop:disabled { color: var(--muted); }
 
   /* states */
   #bouncer-root .bz-empty { padding: 48px 20px; color: var(--muted); line-height: 1.5; }
@@ -1039,18 +1093,19 @@
 
   // ---------------------------------------------------------------- render
   let root, pill, panel;
-  const PERIODS = [[7, 'this week'], [14, 'in the last 14 days'], [30, 'in the last 30 days'], [0, 'ever']];
+  const PERIODS = [[7, '7d', 'this week'], [14, '14d', 'in the last 14 days'], [30, '30d', 'in the last 30 days'], [0, 'All', 'ever']];
   const NOT_READY = {
     loading: ['Connecting', 'A few seconds once your chats are showing. If it never clears, reload this tab.'],
     unauthenticated: ['Link your phone', 'Scan the QR code and wait for your chats to appear.'],
     syncing: ['Syncing', 'WhatsApp is still loading your chats. Give it a moment.'],
     'inject-failed': ['Couldn\'t connect', 'Reload this tab and try again.'],
   };
-  const TAG_WORDS = { optout: ['Stopped', 'Stop'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], del: ['Deleted', 'Delete'] };
-  const CAT_LABEL = { promo: ['Promotional', 'hot'], guess: ['Looks promotional', 'hot'], txn: ['Alerts', ''], api: ['', ''], smb: ['Small business', ''], unknown: ['Not in contacts', ''] };
+  const TAG_WORDS = { optout: ['Opted out', 'Opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], del: ['Deleted', 'Delete'] };
+  const CAT_LABEL = { promo: ['Promotional', 'hot'], guess: ['Looks promotional', 'hot'], txn: ['Alerts only', ''], api: ['', ''], smb: ['Small business', ''], unknown: ['Not in contacts', ''] };
 
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const bizWord = (n) => (n === 1 ? 'business' : 'businesses');
+  const periodWord = () => (PERIODS.find(([v]) => v === state.days) || PERIODS[0])[2];
 
   function mount() {
     if (root) return;
@@ -1066,20 +1121,38 @@
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closePanel(); });
+    window.addEventListener('resize', () => { if (state.open) dockPanel(); });
     render();
   }
 
-  function openPanel() { state.open = true; render(); if (!state.scanned && !state.scanning) scan(); }
-  function closePanel() { state.open = false; render(); }
+  // Size and place the sheet over WhatsApp's chat list column so the conversation
+  // pane to the right stays visible.
+  function dockPanel() {
+    let left = 0, width = 420;
+    try {
+      const pane = document.getElementById('pane-side');
+      if (pane) {
+        const r = pane.getBoundingClientRect();
+        if (r.width > 240) { left = Math.max(0, Math.round(r.left)); width = Math.round(Math.min(Math.max(r.width, 380), 480)); }
+      }
+    } catch (_) {}
+    panel.style.left = left + 'px';
+    panel.style.width = width + 'px';
+  }
+
+  function openPanel() { dockPanel(); state.open = true; render(); if (!state.scanned && !state.scanning) scan(); }
+  function closePanel() { state.open = false; state.armed = false; render(); }
   const findGroup = (key) => state.groups.find((g) => g.key === key);
+
+  // Open the conversation, scrolled to the last message they sent.
   async function openChat(key) {
     const g = findGroup(key); if (!g) return;
     const n = g.active[0] || g.numbers[0]; if (!n) return;
     const W = window.WPP;
     try {
-      if (W.chat.openChatBottom) await W.chat.openChatBottom(n.id);
-      else if (W.chat.openChatAt) await W.chat.openChatAt(n.id);
-    } catch (e) { log('open chat failed', String((e && e.message) || e)); }
+      if (n.lastMsgId && W.chat.openChatAt) { await W.chat.openChatAt(n.id, n.lastMsgId); return; }
+    } catch (e) { log('openChatAt failed, opening bottom', String((e && e.message) || e)); }
+    try { if (W.chat.openChatBottom) await W.chat.openChatBottom(n.id); } catch (e) { log('open chat failed', String((e && e.message) || e)); }
   }
 
   function onClick(e) {
@@ -1089,15 +1162,24 @@
     if (act === 'toggle') { if (state.open) closePanel(); else openPanel(); }
     else if (act === 'close') closePanel();
     else if (act === 'scan') scan();
-    else if (act === 'run') run();
+    else if (act === 'run') {
+      const targets = state.groups.filter((g) => g.checked);
+      const risky = targets.filter((g) => !g.promo);
+      if (risky.length && !state.armed) { state.armed = true; render(); setTimeout(() => { if (state.armed) { state.armed = false; render(); } }, 6000); return; }
+      state.armed = false;
+      run();
+    }
+    else if (act === 'cancel') { state.cancel = true; render(); }
     else if (act === 'open') openChat(t.dataset.key);
     else if (act === 'opts') { state.showOpts = !state.showOpts; render(); }
-    else if (act === 'filter') { state.filter = t.dataset.v === 'all' ? 'all' : 'promo'; render(); }
+    else if (act === 'filter') { state.filter = t.dataset.v === 'all' ? 'all' : 'promo'; state.armed = false; render(); }
+    else if (act === 'period') { const d = Number(t.dataset.v); if (d !== state.days) { state.days = d; state.scanned = false; scan(); } }
     else if (act === 'chip') { state.actions[t.dataset.key] = !state.actions[t.dataset.key]; render(); }
     else if (act === 'expand') { const g = findGroup(t.dataset.key); if (g) { g.expanded = !g.expanded; render(); } }
     else if (act === 'all') { state.groups.forEach((g) => { if (g.kind === 'biz' && g.active.length && (state.filter === 'all' || g.promo)) g.checked = true; }); render(); }
-    else if (act === 'none') { state.groups.forEach((g) => { g.checked = false; }); render(); }
+    else if (act === 'none') { state.groups.forEach((g) => { g.checked = false; }); state.armed = false; render(); }
     else if (act === 'unknown') { state.showUnknown = !state.showUnknown; render(); }
+    else if (act === 'unblock') unblock(t.dataset.id);
     else if (act === 'card') downloadCard();
     else if (act === 'copy') copyText(t);
     else if (act === 'back') { state.results = null; state.reportStatus = null; state.showRep = false; scan(); }
@@ -1117,14 +1199,13 @@
   function onChange(e) {
     const t = e.target;
     if (t.classList.contains('bz-rep-check')) { state.reportSel[t.dataset.key] = t.checked; render(); }
-    else if (t.classList.contains('bz-check')) { const g = findGroup(t.dataset.key); if (g) g.checked = t.checked; render(); }
-    else if (t.classList.contains('bz-period')) { state.days = Number(t.value); state.scanned = false; scan(); }
+    else if (t.classList.contains('bz-check')) { const g = findGroup(t.dataset.key); if (g) g.checked = t.checked; state.armed = false; render(); }
   }
 
   function render() {
     if (!root) return;
     const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && g.promo);
-    pill.hidden = loginScreen() && !state.open;
+    pill.hidden = state.open || (loginScreen() && !state.open);
     const countEl = pill.querySelector('.bz-count');
     if (state.scanned && activeBiz.length) { countEl.textContent = String(activeBiz.length); countEl.hidden = false; }
     else countEl.hidden = true;
@@ -1141,6 +1222,7 @@
       ${renderFoot()}`;
     const nb = panel.querySelector('.bz-body');
     if (nb && scrollTop) nb.scrollTop = scrollTop;
+    if (state.running) { const el = panel.querySelector('.bz-row.active'); if (el) el.scrollIntoView({ block: 'nearest' }); }
   }
 
   const rankSort = (a, b) => (seenCount(b) - seenCount(a)) || (b.msgs - a.msgs) || (b.active.length - a.active.length);
@@ -1161,35 +1243,35 @@
     const biz = (promoOnly ? allBiz.filter((g) => g.promo) : allBiz).slice().sort(rankSort);
     const hiddenN = allBiz.length - biz.length;
     const unknown = promoOnly ? [] : state.groups.filter((g) => g.kind === 'unknown' && g.active.length);
-    const numbers = biz.reduce((n, g) => n + g.active.length, 0);
+    const burned = biz.reduce((n, g) => n + seenCount(g), 0);
     const sel = biz.filter((g) => g.checked).length;
-    const period = `<select class="bz-period" aria-label="Time period">${PERIODS.map(([v, l]) => `<option value="${v}" ${state.days === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    const seg = `<span class="bz-seg">${PERIODS.map(([v, l]) => `<button class="${state.days === v ? 'on' : ''}" data-act="period" data-v="${v}">${l}</button>`).join('')}</span>`;
     const tabs = `<div class="bz-tabs caps">
         <button class="${promoOnly ? 'on' : ''}" data-act="filter" data-v="promo">Promotional</button>
         <button class="${promoOnly ? '' : 'on'}" data-act="filter" data-v="all">All</button>
-        <span class="sp"></span>
-        ${biz.length ? `<button class="sel" data-act="all" style="color:var(--muted)">Select all</button><button class="sel" data-act="none" style="color:var(--muted)">None</button>` : ''}
-        <button class="sel" data-act="scan" style="color:var(--muted)" title="Read the chats again">Rescan</button>
+        <span class="sp"></span>${seg}
       </div>`;
     const firstRun = !(state.history.runs && state.history.runs.length);
 
     if (!biz.length) {
       return `
         <div class="bz-hero">
-          <div class="bz-big">0</div>
-          <div class="bz-lead">${promoOnly ? 'promotions' : 'businesses'} ${period}${promoOnly && hiddenN ? `<span class="m">. ${hiddenN} ${bizWord(hiddenN)} messaged you without looking promotional.</span>` : '<span class="m">. Enjoy the silence.</span>'}</div>
+          <div class="bz-hero-row"><div class="bz-big">0</div>
+            <div class="bz-lead">${promoOnly ? 'promotions' : 'businesses'} ${esc(periodWord())}.<br><span class="m">${promoOnly && hiddenN ? `${hiddenN} ${bizWord(hiddenN)} messaged you without looking promotional.` : 'Enjoy the silence.'}</span></div></div>
           ${tabs}
         </div>
+        <div class="bz-toolbar"><span class="sp"></span><button data-act="scan">Rescan</button></div>
         ${renderUnknown(unknown)}
         ${state.scanStats && state.scanStats.chats ? `<div class="bz-tip">Missing something that's clearly an ad? <button class="bz-link muted" data-act="diag">Copy diagnostics</button> and send them over.</div>` : ''}`;
     }
     return `
       <div class="bz-hero">
-        <div class="bz-big">${biz.length}</div>
-        <div class="bz-lead">${bizWord(biz.length)} ${promoOnly ? 'sent you promotions' : 'messaged you'} ${period} <span class="m">from ${plural(numbers, 'number')}. ${sel} selected. Ranked by numbers burned.</span></div>
+        <div class="bz-hero-row"><div class="bz-big">${biz.length}</div>
+          <div class="bz-lead">${bizWord(biz.length)} ${promoOnly ? 'sent you promotions' : 'messaged you'} ${esc(periodWord())}, burning <b>${burned}</b> ${burned === 1 ? 'number' : 'numbers'} on you.<br><span class="m">Ranked by numbers burned.</span></div></div>
         ${tabs}
       </div>
-      ${firstRun ? `<div class="bz-tip" style="padding-top:0;padding-bottom:12px">Ticked rows are promotional senders. Click a name to open its chat and check.</div>` : ''}
+      <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button><span class="sp"></span><button data-act="scan">Rescan</button></div>
+      ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Ticked rows are promotional senders. Click a name to open the conversation and check before you bounce.</div>` : ''}
       <div class="bz-ledger">${biz.map((g, i) => renderRow(g, i + 1)).join('')}</div>
       ${promoOnly && hiddenN ? `<div class="bz-tip">${hiddenN} more ${bizWord(hiddenN)} messaged you without looking promotional. <button class="bz-link" data-act="filter" data-v="all">Show all</button></div>` : ''}
       ${renderUnknown(unknown)}`;
@@ -1199,9 +1281,10 @@
     const seen = seenCount(g);
     const allBlocked = g.numbers.length > 0 && g.blockedCount === g.numbers.length;
     const [catText, catCls] = CAT_LABEL[g.category] || ['', ''];
+    const showCat = state.filter === 'all' || state.results;   // inside the Promotional tab the label is redundant
     const labels = [
-      g.known ? `<span class="bz-lab warn">Listed · ${g.known.people}</span>` : '',
-      catText && !(g.known && catCls === 'hot') ? `<span class="bz-lab ${catCls}">${catText}</span>` : '',
+      g.known ? `<span class="bz-lab warn">On the Wall · ${g.known.people}</span>` : '',
+      showCat && catText && !(g.known && catCls === 'hot') ? `<span class="bz-lab ${catCls}">${catText}</span>` : '',
       g.optedOut ? '<span class="bz-lab">Opted out</span>' : '',
       allBlocked && !g.done ? '<span class="bz-lab">Blocked</span>' : '',
     ].join('');
@@ -1209,18 +1292,22 @@
     const locked = state.running || g.done;
     const showNums = g.expanded || locked;
     const last = g.numbers[0];
-    const sub = [plural(g.msgs, 'message'), single && !showNums ? esc(fmtPhone(last.phone)) : null, esc(fmtAgo(last.ts))].filter(Boolean).join(' · ')
-      + (g.preview ? ` · <span class="q ${g.previewSys ? 'sys' : ''}">${esc(g.preview)}</span>` : '');
+    const isActive = state.running && g.numbers.some((n) => n.id === state.activeId);
+    const meta = [
+      plural(g.msgs, 'message'),
+      esc(fmtAgo(last.ts)),
+      single ? esc(fmtPhone(last.phone)) : (!locked ? `<button data-act="expand" data-key="${esc(g.key)}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : plural(g.numbers.length, 'number')),
+    ].join(' · ');
     return `
-      <div class="bz-row ${g.checked ? 'on' : 'off'} ${g.done ? 'done' : ''}">
+      <div class="bz-row ${g.checked ? 'on' : ''} ${g.done ? 'done' : ''} ${isActive ? 'active' : ''}">
         <input type="checkbox" class="bz-check" data-key="${esc(g.key)}" ${g.checked ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select ${esc(g.name)}">
         <span class="bz-rank">${rank ? String(rank).padStart(2, '0') : ''}</span>
         <div class="bz-main">
-          <button class="bz-name" data-act="open" data-key="${esc(g.key)}" title="Open the chat">${esc(g.name)}</button>${labels}
-          <div class="bz-sub">${sub}</div>
-          ${!single && !locked ? `<button class="bz-more" data-act="expand" data-key="${esc(g.key)}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : ''}
+          <div class="bz-row1"><button class="bz-name" data-act="open" data-key="${esc(g.key)}" title="Open the conversation at their last message">${esc(g.name)}</button>${labels}</div>
+          ${g.preview ? `<div class="bz-msg ${g.previewSys ? 'sys' : ''}">${esc(g.preview)}</div>` : ''}
+          <div class="bz-meta">${meta}</div>
         </div>
-        ${seen >= 2 ? `<div class="bz-tally"><span class="n">${seen}</span><span class="l">numbers</span></div>` : '<span></span>'}
+        ${seen >= 2 ? `<div class="bz-tally"><b>${seen}</b><small>numbers<br>burned</small></div>` : '<span></span>'}
         ${showNums ? renderNums(g) : ''}
       </div>`;
   }
@@ -1232,14 +1319,18 @@
 
   function renderResultTags(n) {
     if (!n.result) return '';
-    return Object.keys(TAG_WORDS).map((k) => {
+    if (n.result.cancelled) return '<span class="bz-st">Not bounced</span>';
+    const tags = Object.keys(TAG_WORDS).map((k) => {
       const v = n.result[k];
       if (v === undefined || v === 'skipped') return '';
       const [ok, fail] = TAG_WORDS[k];
       if (v === 'already') return `<span class="bz-st">${ok}</span>`;
+      if (v === 'undone') return `<span class="bz-st">Unblocked</span>`;
       if (v === true) return `<span class="bz-st ok">${ok}</span>`;
       return `<span class="bz-st bad" title="${esc((n.errors || {})[k] || '')}">${fail} ✕</span>`;
     }).join('');
+    const undo = !state.running && n.result.block === true ? `<button class="bz-undo" data-act="unblock" data-id="${esc(n.id)}">Unblock</button>` : '';
+    return tags + undo;
   }
 
   function renderUnknown(list) {
@@ -1254,20 +1345,26 @@
     if (state.running && state.progress) {
       const p = state.progress;
       const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
-      return `<div class="bz-foot"><div class="bz-line"><i style="width:${pct}%"></i></div><div class="bz-prog"><div class="t">Bouncing ${esc(p.biz || '')}</div><div class="s">${p.done} of ${plural(p.total, 'number')}${p.step ? ` · ${esc(p.step)}` : ''}</div></div></div>`;
+      return `<div class="bz-foot"><div class="bz-line"><i style="width:${pct}%"></i></div>
+        <div class="bz-prog"><div class="t">Bouncing ${esc(p.biz || '')}</div><button class="stop" data-act="cancel" ${state.cancel ? 'disabled' : ''}>${state.cancel ? 'Stopping…' : 'Stop'}</button><div class="s">${p.done} of ${plural(p.total, 'number')}${p.step ? ` · ${esc(p.step)}` : ''}</div></div></div>`;
     }
     if (status() !== 'ready' || !state.scanned || state.scanning || state.scanError) return '';
     const targets = state.groups.filter((g) => g.checked);
+    const risky = targets.filter((g) => !g.promo);
     const n = targets.reduce((s, g) => s + g.numbers.length, 0);
     const A = state.actions;
-    const parts = [A.optout && 'stop their marketing', A.stop && 'send STOP', A.report && 'report', A.block && 'block', A.del && 'delete the chat'].filter(Boolean);
-    const what = parts.length ? 'Will ' + parts.join(', ').replace(/, ([^,]*)$/, ' and $1') : 'No actions selected';
-    const label = !targets.length ? 'Select a business' : targets.length === 1 ? `Bounce ${clip(targets[0].name, 22)}` : `Bounce ${targets.length} businesses`;
+    const parts = [A.optout && 'opt out', A.stop && 'STOP', A.report && 'report', A.block && 'block', A.del && 'delete'].filter(Boolean);
+    const what = parts.length ? parts.join(' · ') : 'No actions selected';
+    let label = !targets.length ? 'Select a business' : targets.length === 1 ? `Bounce ${clip(targets[0].name, 22)}` : `Bounce ${targets.length} businesses`;
+    if (state.armed) label = `Sure? Bounce ${targets.length === 1 ? clip(targets[0].name, 18) : `${targets.length} businesses`}`;
     const chip = (key, l) => `<button class="bz-chip ${A[key] ? 'on' : ''}" data-act="chip" data-key="${key}"><span class="dot"></span>${l}</button>`;
+    const hint = state.armed
+      ? `${risky.length === 1 ? `<b>${esc(risky[0].name)}</b> doesn't` : `${risky.length} of these don't`} look promotional. Click again to bounce anyway.`
+      : `${esc(what)} · <button data-act="opts">${state.showOpts ? 'Hide' : 'Change'}</button>`;
     return `<div class="bz-foot">
-      <button class="bz-btn" data-act="run" ${targets.length && parts.length ? '' : 'disabled'}>${esc(label)}${n > targets.length ? `<span class="n">${plural(n, 'number')}</span>` : ''}</button>
-      <div class="bz-hint">${esc(what)} · <button class="bz-link muted" data-act="opts">${state.showOpts ? 'Hide' : 'Change'}</button></div>
-      ${state.showOpts ? `<div class="bz-opts">${chip('optout', 'Stop marketing')}${chip('stop', 'Send STOP')}${chip('report', 'Report')}${chip('block', 'Block')}${chip('del', 'Delete chat')}</div><div class="bz-hint" style="margin-top:8px">Stop marketing is WhatsApp's own opt-out. It applies to the whole business, not one number.</div>` : ''}
+      <button class="bz-btn ${state.armed ? 'armed' : ''}" data-act="run" ${targets.length && parts.length ? '' : 'disabled'}>${esc(label)}${n > targets.length && !state.armed ? `<span class="n">${plural(n, 'number')}</span>` : ''}</button>
+      <div class="bz-hint">${hint}</div>
+      ${state.showOpts && !state.armed ? `<div class="bz-opts">${chip('optout', 'Stop marketing')}${chip('stop', 'Send STOP')}${chip('report', 'Report')}${chip('block', 'Block')}${chip('del', 'Delete chat')}</div><div class="bz-hint" style="margin-top:8px">Stop marketing is WhatsApp's own opt-out. It applies to the whole business, not one number.</div>` : ''}
     </div>`;
   }
 
@@ -1278,37 +1375,34 @@
     const bounced = state.groups.filter((g) => g.done).slice().sort(rankSort);
     const softFails = bounced.reduce((c, g) => c + g.numbers.filter((n) => n.result && ['report', 'optout'].some((k) => n.result[k] === false || n.result[k] === 'timeout')).length, 0);
     const otherFails = Math.max(0, s.failed - softFails);
+    const doneNumbers = s.numbers - (s.cancelled || 0);
     const stats = [
       A.optout && !s.optoutDead ? `<b>${s.optout}</b> marketing stopped` : '', A.stop ? `<b>${s.stop}</b> STOP sent` : '',
-      A.report && !s.reportDead ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '', A.del ? `<b>${s.del}</b> chats deleted` : '',
+      A.report && !s.reportDead ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '', A.del ? `<b>${s.del}</b> ${s.del === 1 ? 'chat' : 'chats'} deleted` : '',
     ].filter(Boolean).join(' · ');
+    const rs = state.reportStatus;
+    const selN = bounced.filter((g) => state.reportSel[g.key]).length;
     return `
       <div class="bz-done">
         <div class="bz-stamp">Bounced</div>
-        <div class="bz-big ink">${s.numbers}</div>
-        <div class="bz-lead">${s.numbers === 1 ? 'number' : 'numbers'} from ${s.businesses} ${bizWord(s.businesses)}${top && top.seen >= 2 ? `. <span class="m">${esc(top.name)} alone had burned ${top.seen} on you.</span>` : ''}</div>
+        <div class="bz-hero-row"><div class="bz-big ink">${doneNumbers}</div>
+          <div class="bz-lead">${doneNumbers === 1 ? 'number' : 'numbers'} from ${s.businessesDone != null ? s.businessesDone : s.businesses} ${bizWord(s.businessesDone != null ? s.businessesDone : s.businesses)}.${top && top.seen >= 2 ? ` <span class="m">${esc(top.name)} alone had burned ${top.seen} on you.</span>` : ''}</div></div>
         <div class="bz-stats">${stats}</div>
       </div>
+      ${s.cancelled ? `<div class="bz-tip">Stopped early. ${plural(s.cancelled, 'number')} not bounced.</div>` : ''}
       ${s.optoutDead ? `<div class="bz-tip">WhatsApp's marketing opt-out isn't available on this build yet.</div>` : ''}
       ${s.reportDead ? `<div class="bz-tip">Reporting didn't go through on this WhatsApp Web version. Everything else did.</div>` : ''}
       ${otherFails > 0 ? `<div class="bz-tip">${plural(otherFails, 'action')} didn't go through. See the marks below.</div>` : ''}
       <div class="bz-actions">
-        <button class="bz-btn paper" data-act="card">Save share card</button>
-        ${renderWallAction(bounced)}
+        ${rs && rs.ok
+          ? `<a class="bz-btn paper" href="${esc(rs.url || '#')}" target="_blank" rel="noopener">Added · Open the Wall of Shame ↗</a>`
+          : `<button class="bz-btn paper" data-act="report" ${selN && rs !== 'sending' ? '' : 'disabled'}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button>`}
+        <button class="bz-btn ghost" data-act="card">Save share card</button>
       </div>
-      <div class="bz-hint"><button class="bz-link muted" data-act="copy">Copy as text</button></div>
+      <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Names and hashed numbers only · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
       ${state.showRep ? renderRepList(bounced) : ''}
       ${!A.optout || s.optoutDead ? `<div class="bz-tip">To make it stick, open their chat on your phone and tap <b>Stop</b> on a marketing message.</div>` : ''}
       <div class="bz-ledger" style="margin-top:18px">${bounced.map((g, i) => renderRow(g, i + 1)).join('')}</div>`;
-  }
-
-  function renderWallAction(bounced) {
-    const rs = state.reportStatus;
-    if (rs && rs.ok) return `<a class="bz-btn ghost" href="${esc(rs.url || '#')}" target="_blank" rel="noopener">Added · Wall of Shame ↗</a>`;
-    const selN = bounced.filter((g) => state.reportSel[g.key]).length;
-    const sending = rs === 'sending';
-    return `<button class="bz-btn ghost" data-act="report" ${selN && !sending ? '' : 'disabled'}>${sending ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button>
-      <div class="bz-hint" style="margin-top:0">${rs && rs.error ? `Couldn't add: ${esc(rs.error)}. ` : 'Names and hashed numbers only. '}<button class="bz-link muted" data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose'}</button></div>`;
   }
 
   function renderRepList(bounced) {
