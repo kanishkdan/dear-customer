@@ -26,7 +26,6 @@
     filter: 'promo',           // 'promo' | 'all'
     actions: { optout: true, stop: true, report: true, block: true, archive: true, del: false },
     onboarded: false,          // has the user answered "what do you want to do with these messages?"
-    onboardingShown: false,
     groups: [],
     scanned: false,
     scanning: false,
@@ -1002,7 +1001,7 @@
   #bouncer-root .bz-count { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 
   /* sheet */
-  #bouncer-root .bz-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-right: 1px solid var(--line); box-shadow: 24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(-100% - 30px)); transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease; }
+  #bouncer-root .bz-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-right: 1px solid var(--line); box-shadow: 24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(-100% - 120px)); visibility: hidden; transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease, visibility 0s linear .26s; }
   #bouncer-root .bz-split { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--list-w, 400px) minmax(0, 1fr); }
   #bouncer-root .bz-col { display: flex; flex-direction: column; min-height: 0; }
   #bouncer-root .bz-col.dash { border-left: 1px solid var(--line); background: #0e171c; }
@@ -1013,7 +1012,7 @@
   #bouncer-root .bz-wallrow .t { border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; }
   #bouncer-root .bz-wallrow .t b { display: block; font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1; color: var(--paper); font-variant-numeric: tabular-nums; }
   #bouncer-root .bz-wallrow .t small { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 9px; color: var(--muted); margin-top: 5px; }
-  #bouncer-root .bz-panel.open { transform: none; }
+  #bouncer-root .bz-panel.open { transform: none; visibility: visible; transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease, visibility 0s; }
   #bouncer-root .bz-head { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
   #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 14px; }
   #bouncer-root .bz-wall { margin-left: auto; font-size: 11px; color: var(--muted); padding: 6px 8px; }
@@ -1143,24 +1142,22 @@
   #bouncer-root .bz-warn { color: var(--muted); }
 
   /* setup */
-  #bouncer-root .bz-setup { padding: 26px 20px 20px; }
-  #bouncer-root .bz-setup-h { font-family: var(--display); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; font-size: 30px; line-height: 1.05; color: var(--paper); max-width: 640px; text-wrap: balance; }
-  #bouncer-root .bz-setup-s { color: var(--muted); font-size: 13px; margin: 12px 0 22px; max-width: 560px; line-height: 1.5; }
-  #bouncer-root .bz-setup-s b { color: var(--paper); font-weight: 600; }
-  #bouncer-root .bz-cards { display: grid; grid-template-columns: 1fr; gap: 10px; }
-  #bouncer-root .bz-setup.wide .bz-cards { grid-template-columns: 1fr 1fr; gap: 12px; }
-  #bouncer-root .bz-card { display: grid; grid-template-columns: 22px 1fr; gap: 14px; align-items: start; text-align: left; padding: 16px 18px; border: 1px solid var(--line); border-radius: 4px; background: #182229; transition: border-color .12s, background .12s; }
-  #bouncer-root .bz-card:hover { border-color: var(--muted); }
-  #bouncer-root .bz-card.on { border-color: var(--paper); background: #1c2830; }
-  #bouncer-root .bz-card-check { width: 22px; height: 22px; border: 1.5px solid var(--muted); border-radius: 3px; position: relative; margin-top: 1px; }
-  #bouncer-root .bz-card.on .bz-card-check { background: var(--paper); border-color: var(--paper); }
-  #bouncer-root .bz-card.on .bz-card-check::after { content: ""; position: absolute; left: 7px; top: 2px; width: 6px; height: 12px; border: solid var(--ground); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
-  #bouncer-root .bz-card-main { display: grid; gap: 4px; min-width: 0; }
-  #bouncer-root .bz-card-t { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 700; font-size: 14px; color: var(--paper); }
-  #bouncer-root .bz-card-b { color: #cfd6da; font-size: 13px; line-height: 1.45; }
-  #bouncer-root .bz-card-n { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; color: var(--muted); margin-top: 2px; }
-  #bouncer-root .bz-card-n.good { color: var(--ok); }
-  #bouncer-root .bz-card-n.warn { color: var(--ink); }
+  #bouncer-root .bz-setup { padding: 28px 24px 8px; max-width: 560px; }
+  #bouncer-root .bz-setup-h { font-family: var(--display); font-weight: 700; font-size: 30px; line-height: 1.08; color: var(--paper); text-wrap: balance; }
+  #bouncer-root .bz-setup-s { color: var(--muted); font-size: 13px; margin: 10px 0 20px; }
+  #bouncer-root .bz-choices { border-top: 1px solid var(--line); }
+  #bouncer-root .bz-choice { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 14px; align-items: start; width: 100%; text-align: left; padding: 14px 4px 14px 2px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; margin-left: -3px; }
+  #bouncer-root .bz-choice:hover { background: #151f26; }
+  #bouncer-root .bz-choice.on { border-left-color: var(--paper); }
+  #bouncer-root .bz-choice-check { width: 18px; height: 18px; border: 1.5px solid var(--muted); border-radius: 3px; position: relative; margin-top: 1px; }
+  #bouncer-root .bz-choice.on .bz-choice-check { background: var(--paper); border-color: var(--paper); }
+  #bouncer-root .bz-choice.on .bz-choice-check::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid var(--ground); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  #bouncer-root .bz-choice-main { display: grid; gap: 3px; min-width: 0; }
+  #bouncer-root .bz-choice-t { font-weight: 600; font-size: 14px; color: var(--paper); }
+  #bouncer-root .bz-choice-b { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+  #bouncer-root .bz-choice-n { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; color: var(--muted); padding-top: 3px; white-space: nowrap; }
+  #bouncer-root .bz-choice-n.good { color: var(--ok); }
+  #bouncer-root .bz-choice-n.warn { color: var(--ink); }
 
   /* results */
   #bouncer-root .bz-done { padding: 26px 20px 8px; }
@@ -1240,14 +1237,15 @@
     const room = window.innerWidth - left;
     const canSplit = state.expanded && room >= 900;
     panel.style.left = left + 'px';
-    panel.style.width = (canSplit ? Math.min(room - 16, 1160) : listW) + 'px';
+    const setupW = Math.min(room - 16, 640);
+    panel.style.width = (state.view === 'setup' ? Math.max(listW, setupW) : canSplit ? Math.min(room - 16, 1160) : listW) + 'px';
     panel.style.setProperty('--list-w', listW + 'px');
     return canSplit;
   }
 
   function openPanel() {
     state.open = true;
-    if (!state.onboarded && !state.onboardingShown) { state.onboardingShown = true; state.view = 'setup'; state.expanded = true; }
+    if (!state.onboarded) state.view = 'setup';
     dockPanel(); render();
     if (!state.scanned && !state.scanning) scan();   // read-only, runs while they choose
   }
@@ -1257,7 +1255,7 @@
     state.onboarded = true;
     saveHistory();
   }
-  function closePanel() { state.open = false; state.armed = false; state.view = 'list'; state.expanded = false; render(); }
+  function closePanel() { state.open = false; state.armed = false; state.view = state.onboarded ? 'list' : 'setup'; state.expanded = false; render(); }
   const findGroup = (key) => state.groups.find((g) => g.key === key);
 
   // Open the conversation, scrolled to the last message they sent. Three ways in,
@@ -1300,8 +1298,8 @@
       run();
     }
     else if (act === 'cancel') { state.cancel = true; render(); }
-    else if (act === 'opt') { state.actions[t.dataset.key] = !state.actions[t.dataset.key]; if (t.dataset.key === 'del' && state.actions.del) state.actions.archive = false; render(); }
-    else if (act === 'setup') { state.view = 'setup'; state.expanded = true; render(); }
+    else if (act === 'opt') { setChoice(t.dataset.key, !choiceOn(t.dataset.key)); render(); }
+    else if (act === 'setup') { state.view = 'setup'; render(); }
     else if (act === 'setup-done') { saveActions(); state.view = 'list'; state.expanded = false; state.armed = false; dockPanel(); render(); }
     else if (act === 'chart') { state.view = 'chart'; render(); }
     else if (act === 'chart-close') { state.view = 'list'; render(); }
@@ -1350,8 +1348,9 @@
     const bodyEl = panel.querySelector('.bz-body');
     const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
     const wall = state.community && state.community.url;
-    const split = dockPanel() && state.view !== 'setup';
+    if (!state.onboarded && state.view !== 'setup') state.view = 'setup';   // the question can't be skipped
     const setup = state.view === 'setup';
+    const split = dockPanel() && !setup;
     const chart = !split && state.view === 'chart';
     const head = `
       <div class="bz-head">${LOGO}<span class="bz-word">Bouncer</span>
@@ -1601,35 +1600,43 @@
       ${wall ? `<div class="bz-dash-top" style="padding-top:4px"><span class="caps" style="color:var(--muted);font-size:11px">Wall of Shame, everyone</span><span class="sp"></span>${C && C.url ? `<a class="bz-link muted" href="${esc(C.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>${wall}` : ''}`;
   }
 
-  const ACTION_CARDS = [
-    ['optout', 'Stop their marketing', "WhatsApp's own opt-out. Meta then refuses that business's marketing messages to you, whichever number they use.", 'Reversible on your phone', 'good'],
-    ['stop', 'Send STOP', "Taps the opt-out button on their last message, or types STOP. Tells the vendor's own system to drop you.", 'Sends one message', ''],
-    ['report', 'Report to WhatsApp', "Sends their last message to WhatsApp. Reports lower a number's rating until Meta throttles it.", "Can't be undone", 'warn'],
-    ['block', 'Block the number', 'That number can never message you again.', 'Reversible', 'good'],
-    ['archive', 'Archive the chat', 'Moves it out of your chat list. Comes back if they message you again.', 'Reversible', 'good'],
-    ['del', 'Delete the chat', 'Removes the chat on all your devices.', "Can't be undone", 'warn'],
+  // One choice per outcome. "Opt out" runs both opt-out flows: WhatsApp's own
+  // (Meta's side) and STOP (the business's side). They act on different systems
+  // and only together cover what each one misses.
+  const CHOICES = [
+    ['unsub', 'Opt out', 'Tells WhatsApp and the business to stop sending you marketing. Sends one STOP.', 'Reversible', 'good'],
+    ['report', 'Report to WhatsApp', "Lowers the number's rating until Meta throttles it.", "Can't be undone", 'warn'],
+    ['block', 'Block the number', 'It can never message you again.', 'Reversible', 'good'],
+    ['archive', 'Archive the chat', 'Out of your list. Back if they write again.', 'Reversible', 'good'],
+    ['del', 'Delete the chat', 'Gone from all your devices.', "Can't be undone", 'warn'],
   ];
+  const choiceOn = (key) => (key === 'unsub' ? !!(state.actions.optout || state.actions.stop) : !!state.actions[key]);
+  function setChoice(key, on) {
+    if (key === 'unsub') { state.actions.optout = on; state.actions.stop = on; }
+    else state.actions[key] = on;
+    if (key === 'del' && on) state.actions.archive = false;
+    if (key === 'archive' && on) state.actions.del = false;
+  }
   function renderSetup() {
-    const A = state.actions;
-    const wide = panel.offsetWidth > 700;
     return `
-      <div class="bz-setup ${wide ? 'wide' : ''}">
+      <div class="bz-setup">
         <div class="bz-setup-h">What do you want to do with these messages?</div>
-        <div class="bz-setup-s">Bouncer does this to every business you tick. Pick what feels right; you can change it any time from <b>Change</b> under the Bounce button.</div>
-        <div class="bz-cards">
-          ${ACTION_CARDS.map(([key, title, body, note, cls]) => `
-            <button class="bz-card ${A[key] ? 'on' : ''}" data-act="opt" data-key="${key}" aria-pressed="${A[key] ? 'true' : 'false'}">
-              <span class="bz-card-check"></span>
-              <span class="bz-card-main"><span class="bz-card-t">${title}</span><span class="bz-card-b">${body}</span><span class="bz-card-n ${cls}">${note}</span></span>
+        <div class="bz-setup-s">For every business you tick. Change it any time.</div>
+        <div class="bz-choices">
+          ${CHOICES.map(([key, title, body, note, cls]) => `
+            <button class="bz-choice ${choiceOn(key) ? 'on' : ''}" data-act="opt" data-key="${key}" aria-pressed="${choiceOn(key) ? 'true' : 'false'}">
+              <span class="bz-choice-check"></span>
+              <span class="bz-choice-main"><span class="bz-choice-t">${title}</span><span class="bz-choice-b">${body}</span></span>
+              <span class="bz-choice-n ${cls}">${note}</span>
             </button>`).join('')}
         </div>
       </div>`;
   }
   function renderSetupFoot() {
     const A = state.actions;
-    const n = Object.keys(A).filter((k) => A[k]).length;
-    return `<div class="bz-foot"><button class="bz-btn paper" data-act="setup-done" ${n ? '' : 'disabled'}>${n ? `Continue with ${n} ${n === 1 ? 'action' : 'actions'}` : 'Pick at least one'}</button>
-      <div class="bz-hint">${A.del ? "Deleted chats can't be recovered. " : ''}${A.report ? "Reports can't be withdrawn. " : ''}${!A.del && !A.report ? 'Everything here can be undone.' : ''}</div></div>`;
+    const n = CHOICES.filter(([k]) => choiceOn(k)).length;
+    return `<div class="bz-foot"><button class="bz-btn paper" data-act="setup-done" ${n ? '' : 'disabled'}>${n ? 'Continue' : 'Pick at least one'}</button>
+      <div class="bz-hint">${A.del ? "Deleted chats can't be recovered. " : ''}${A.report ? "Reports can't be withdrawn." : ''}${!A.del && !A.report ? 'Everything here can be undone.' : ''}</div></div>`;
   }
 
   function renderChartFoot() {
