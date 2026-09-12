@@ -42,6 +42,7 @@
     cancel: false,             // set by the Stop button during a run
     notice: null,              // transient one-line message under the toolbar
     view: 'list',              // 'list' | 'chart'
+    expanded: false,           // wide mode: list on the left, dashboard on the right
     activeId: null,            // number currently being bounced
     armed: false,              // second-click confirm when the selection includes non-promotional rows
     inject: 'idle',           // 'idle' | 'requested' | 'done' | 'failed'
@@ -331,7 +332,7 @@
   // marketing pricing, and "Important update on your account" from a bank you
   // don't bank with is the canonical example.
   const PROMO_RE = /\b(offer|offers|discount|sale|deal|deals|cashback|coupon|voucher|promo|promotion|limited[- ]time|limited period|hurry|last (?:day|chance)|exclusive|unlock|apply (?:now|today)|register(?: now)?|book now|shop now|buy now|order now|webinar|masterclass|flat \d+ ?%|\d+ ?% ?off|emi|emis|loan|loans|pre-?approved|credit (?:limit|card|line)|instant (?:credit|loan|cash)|eligible|eligibility|free delivery|festive|bonanza|mega|special (?:offer|price)|upgrade|reward|rewards|bonus|gift|win|invest|investment|mutual funds?|sip|ipo|demat|trading|insurance|policy|renew|avail|t&c|terms (?:and|&) conditions|click (?:here|below)|tap (?:here|below)|download (?:the|our) app|new launch|launching|introducing|don'?t miss|expires? (?:soon|today)|only for you|selected customers|dear customer|₹ ?\d|rs\.? ?\d|lakh|crore|wealth|earn|save (?:up to|more)|zero (?:fee|cost)|lifetime free)\b/gi;
-  const TXN_RE = /\b(otp|one[- ]time password|verification code|is your (?:code|otp)|do not share|order (?:id|no|number|#)|has been (?:shipped|delivered|dispatched|placed|confirmed|cancelled|received)|out for delivery|arriving|delivered|payment (?:received|successful|failed|of)|invoice|receipt|debited|credited|transaction|txn|a\/c|account ending|balance|statement|booking (?:id|confirmed)|pnr|ticket|boarding|appointment|reminder: your|due (?:date|on)|bill (?:of|for|amount)|password reset|login (?:code|attempt)|verify your|tracking)\b/gi;
+  const TXN_RE = /\b(otp|one[- ]time password|verification code|is your (?:code|otp)|do not share|order (?:id|no|number|#)|has been (?:shipped|delivered|dispatched|placed|confirmed|cancelled|received|generated|processed|initiated|credited|debited)|out for delivery|arriving|delivered|payment (?:received|successful|failed|of|reminder|due)|invoice|receipt|debited|credited|transaction|txn|a\/c|account ending|balance|statement|bills?|generated|booking (?:id|confirmed)|pnr|ticket|boarding|appointment|reminder|due (?:date|on|by)|pay by|amount due|total amount|minimum (?:amount )?due|outstanding|emi (?:due|of)|auto-?debit|mandate|premium due|renewal due|password reset|login (?:code|attempt)|verify your|kyc|re-?kyc|expir(?:es|ing|y)|tracking)\b/gi;
 
   function buttonsOf(m) {
     const hb = attrOf(m, 'hydratedButtons') || attrOf(m, 'templateButtons') || attrOf(m, 'nativeFlowButtons') || attrOf(m, 'buttons');
@@ -369,8 +370,9 @@
     const text = textOf(m);
     const promo = countRe(PROMO_RE, text);
     const txn = countRe(TXN_RE, text);
-    if (promo >= 1 && promo >= txn) return 'promo-guess';
-    if (hasCta(m) && txn === 0) return 'promo-guess';
+    // Ties go to alerts: a statement that mentions a credit card is still a statement.
+    if (promo >= 1 && promo > txn) return 'promo-guess';
+    if (txn === 0 && hasCta(m)) return 'promo-guess';
     if (tag === 'utility' || txn >= 1) return 'utility';
     return null;
   }
@@ -470,7 +472,9 @@
         const inWindow = cutoff === 0 ? true : realTs >= cutoff;
         if (inWindow) stats.active++;
         const inbound = msgs.filter((m) => isInbound(m) && isContent(m) && (cutoff === 0 || (attrOf(m, 't') || 0) >= cutoff));
-        const lastInbound = inbound[inbound.length - 1] || msgs.slice().reverse().find((m) => isInbound(m) && isContent(m)) || null;
+        const inboundAll = msgs.filter((m) => isInbound(m) && isContent(m));
+        const lastInbound = inbound[inbound.length - 1] || inboundAll[inboundAll.length - 1] || null;
+        const lastWithText = inboundAll.slice().reverse().find((m) => msgText(m)) || lastInbound;
         const lastMsgId = lastInbound ? (attrOf(lastInbound, 'id') && (attrOf(lastInbound, 'id')._serialized || String(attrOf(lastInbound, 'id')))) : null;
 
         let bizByMsg = false, msgName = null;
@@ -505,7 +509,7 @@
 
         let blocked = false;
         try { blocked = !!(await W.blocklist.isBlocked(id)); } catch (_) {}
-        const pv = previewOf(lastInbound);
+        const pv = previewOf(lastWithText);
         // promo: WhatsApp-tagged marketing, or the contact carries the marketing-thread flag.
         // guess: no tag but the text reads like an ad. txn: utility/auth only. api: tagged nothing.
         // The public list never overrides what a business sends *you*: a sender whose
@@ -954,7 +958,8 @@
   // ------------------------------------------------------------------ styles
   // The door list. A ledger, not a dashboard: hairlines instead of cards, one red
   // used as ink for the tally and the stamp, condensed numerals like a door counter.
-  // The sheet sits on the right; a clicked row opens its conversation beside it.
+  // The sheet docks over WhatsApp's chat list, so a clicked row opens its
+  // conversation in full view to the right. Expanded, it widens to add a dashboard.
   const DISPLAY = '"Avenir Next Condensed", "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif';
   const CSS = `
   #bouncer-root { all: initial; font-family: ${FONT}; font-size: 13px; line-height: 1.45; color: #e9edef; position: fixed; z-index: 2147483000; -webkit-font-smoothing: antialiased;
@@ -975,7 +980,17 @@
   #bouncer-root .bz-count { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 
   /* sheet */
-  #bouncer-root .bz-panel { position: fixed; top: 0; right: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-left: 1px solid var(--line); box-shadow: -24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(100% + 30px)); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
+  #bouncer-root .bz-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-right: 1px solid var(--line); box-shadow: 24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(-100% - 30px)); transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease; }
+  #bouncer-root .bz-split { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--list-w, 400px) minmax(0, 1fr); }
+  #bouncer-root .bz-col { display: flex; flex-direction: column; min-height: 0; }
+  #bouncer-root .bz-col.dash { border-left: 1px solid var(--line); background: #0e171c; }
+  #bouncer-root .bz-dash-top { display: flex; align-items: center; gap: 12px; padding: 14px 20px 0; }
+  #bouncer-root .bz-dash-top .sp { flex: 1; }
+  #bouncer-root .bz-dash-top .bz-btn { width: auto; height: 34px; padding: 0 14px; font-size: 12px; }
+  #bouncer-root .bz-wallrow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 6px 20px 20px; }
+  #bouncer-root .bz-wallrow .t { border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; }
+  #bouncer-root .bz-wallrow .t b { display: block; font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1; color: var(--paper); font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-wallrow .t small { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 9px; color: var(--muted); margin-top: 5px; }
   #bouncer-root .bz-panel.open { transform: none; }
   #bouncer-root .bz-head { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
   #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 14px; }
@@ -1170,11 +1185,31 @@
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closePanel(); });
+    window.addEventListener('resize', () => { if (state.open) dockPanel(); });
     render();
   }
 
-  function openPanel() { state.open = true; render(); if (!state.scanned && !state.scanning) scan(); }
-  function closePanel() { state.open = false; state.armed = false; state.view = 'list'; render(); }
+  // Size and place the sheet over WhatsApp's chat-list column. Expanded, it takes
+  // the rest of the window up to a sane width.
+  function dockPanel() {
+    let left = 0, listW = 420;
+    try {
+      const pane = document.getElementById('pane-side');
+      if (pane) {
+        const r = pane.getBoundingClientRect();
+        if (r.width > 240) { left = Math.max(0, Math.round(r.left)); listW = Math.round(Math.min(Math.max(r.width, 380), 480)); }
+      }
+    } catch (_) {}
+    const room = window.innerWidth - left;
+    const canSplit = state.expanded && room >= 900;
+    panel.style.left = left + 'px';
+    panel.style.width = (canSplit ? Math.min(room - 16, 1160) : listW) + 'px';
+    panel.style.setProperty('--list-w', listW + 'px');
+    return canSplit;
+  }
+
+  function openPanel() { state.open = true; dockPanel(); render(); if (!state.scanned && !state.scanning) scan(); }
+  function closePanel() { state.open = false; state.armed = false; state.view = 'list'; state.expanded = false; render(); }
   const findGroup = (key) => state.groups.find((g) => g.key === key);
 
   // Open the conversation, scrolled to the last message they sent. Three ways in,
@@ -1188,6 +1223,7 @@
   async function openChat(key) {
     const g = findGroup(key); if (!g) return;
     const n = g.active[0] || g.numbers[0]; if (!n) return;
+    if (state.expanded) { state.expanded = false; dockPanel(); render(); }
     const W = window.WPP;
     const attempts = [
       ['openChatAt', () => n.lastMsgId && W.chat.openChatAt ? W.chat.openChatAt(n.id, n.lastMsgId) : Promise.reject(new Error('no message id'))],
@@ -1218,6 +1254,12 @@
     else if (act === 'cancel') { state.cancel = true; render(); }
     else if (act === 'chart') { state.view = 'chart'; render(); }
     else if (act === 'chart-close') { state.view = 'list'; render(); }
+    else if (act === 'expand') {
+      // Wide enough: split view. Otherwise the chart takes the panel over.
+      const left = parseInt(panel.style.left || '0', 10) || 0;
+      if (!state.expanded && window.innerWidth - left < 900) { state.view = 'chart'; render(); return; }
+      state.expanded = !state.expanded; state.view = 'list'; render();
+    }
     else if (act === 'chart-card') downloadChartCard();
     else if (act === 'noop') { /* checkbox: handled by onChange */ }
     else if (act === 'open') openChat(t.dataset.key);
@@ -1258,15 +1300,18 @@
     const bodyEl = panel.querySelector('.bz-body');
     const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
     const wall = state.community && state.community.url;
-    const chart = state.view === 'chart';
-    panel.innerHTML = `
+    const split = dockPanel();
+    const chart = !split && state.view === 'chart';
+    const head = `
       <div class="bz-head"><span class="bz-mark"></span><span class="bz-word">Bouncer</span>
         <span style="margin-left:auto"></span>
-        <button class="bz-wall caps" data-act="${chart ? 'chart-close' : 'chart'}">${chart ? '← Back' : 'Bounced'}</button>
+        ${chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Collapse ⇤' : 'Expand ⇥'}</button>`}
         ${wall && !chart ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
-        <button class="bz-x" data-act="close" aria-label="Close">×</button></div>
-      <div class="bz-body">${chart ? renderChart() : state.results ? renderDone() : renderList()}</div>
-      ${chart ? renderChartFoot() : renderFoot()}`;
+        <button class="bz-x" data-act="close" aria-label="Close">×</button></div>`;
+    const listCol = `<div class="bz-body">${state.results ? renderDone() : renderList()}</div>${renderFoot()}`;
+    panel.innerHTML = split
+      ? `${head}<div class="bz-split"><div class="bz-col">${listCol}</div><div class="bz-col dash"><div class="bz-body">${renderDashboard()}</div></div></div>`
+      : `${head}<div class="bz-body">${chart ? renderChart() : state.results ? renderDone() : renderList()}</div>${chart ? renderChartFoot() : renderFoot()}`;
     const nb = panel.querySelector('.bz-body');
     if (nb && scrollTop) nb.scrollTop = scrollTop;
     if (state.running) { const el = panel.querySelector('.bz-row.active'); if (el) el.scrollIntoView({ block: 'nearest' }); }
@@ -1447,7 +1492,7 @@
           : `<button class="bz-btn paper" data-act="report" ${selN && rs !== 'sending' ? '' : 'disabled'}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button>`}
         <button class="bz-btn ghost" data-act="card">Save share card</button>
       </div>
-      <div class="bz-hint"><button data-act="chart">See everything you've bounced</button></div>
+      <div class="bz-hint"><button data-act="expand">See everything you've bounced</button></div>
       <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Promotional senders only, names and hashed numbers · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
       <div class="bz-hint" style="margin-top:6px"><label class="bz-auto"><input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}> Add to the Wall automatically after every run</label></div>
       ${state.showRep ? renderRepList(bounced) : ''}
@@ -1488,6 +1533,21 @@
       ${runs.length > 1 ? `
       <div class="bz-runs-head caps">Numbers per run</div>
       <div class="bz-runs">${runs.map((r) => `<span class="bz-run" style="height:${Math.max(6, Math.round(((r.numbers || 0) / runMax) * 100))}%"><span class="bz-tt">${new Date((r.ts || 0) * 1000).toLocaleDateString()} · ${plural(r.numbers || 0, 'number')} · ${plural(r.businesses || 0, 'business').replace('businesss', 'businesses')}</span></span>`).join('')}</div>` : ''}`;
+  }
+
+  function renderDashboard() {
+    const C = state.community;
+    const rows = bouncedRows();
+    const wall = C ? `
+      <div class="bz-wallrow">
+        <div class="t"><b>${C.totals.businesses || 0}</b><small>on the Wall</small></div>
+        <div class="t"><b>${C.totals.numbers || 0}</b><small>numbers burned</small></div>
+        <div class="t"><b>${C.totals.people || 0}</b><small>people reporting</small></div>
+      </div>` : '';
+    return `
+      <div class="bz-dash-top"><span class="caps" style="color:var(--muted);font-size:11px">Everything you've bounced</span><span class="sp"></span>${rows.length ? `<button class="bz-btn paper" data-act="chart-card">Save chart</button>` : ''}</div>
+      ${renderChart()}
+      ${wall ? `<div class="bz-dash-top" style="padding-top:4px"><span class="caps" style="color:var(--muted);font-size:11px">Wall of Shame, everyone</span><span class="sp"></span>${C && C.url ? `<a class="bz-link muted" href="${esc(C.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>${wall}` : ''}`;
   }
 
   function renderChartFoot() {
