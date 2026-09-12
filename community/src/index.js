@@ -9,7 +9,7 @@
  * and a random per-install id. No user identity, no message content.
  */
 
-const ICON_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 128\">\n  <defs>\n    <linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">\n      <stop offset=\"0\" stop-color=\"#ef4a42\"/>\n      <stop offset=\"1\" stop-color=\"#d42a22\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"128\" height=\"128\" rx=\"30\" fill=\"url(#g)\"/>\n  <!-- temples -->\n  <rect x=\"4\" y=\"54\" width=\"18\" height=\"8\" rx=\"4\" fill=\"#fff\"/>\n  <rect x=\"106\" y=\"54\" width=\"18\" height=\"8\" rx=\"4\" fill=\"#fff\"/>\n  <!-- bridge -->\n  <rect x=\"54\" y=\"53\" width=\"20\" height=\"8\" rx=\"4\" fill=\"#fff\"/>\n  <!-- lenses: white frame, dark glass -->\n  <rect x=\"14\" y=\"42\" width=\"46\" height=\"34\" rx=\"12\" fill=\"#fff\"/>\n  <rect x=\"68\" y=\"42\" width=\"46\" height=\"34\" rx=\"12\" fill=\"#fff\"/>\n  <rect x=\"19\" y=\"47\" width=\"36\" height=\"24\" rx=\"8\" fill=\"#111b21\"/>\n  <rect x=\"73\" y=\"47\" width=\"36\" height=\"24\" rx=\"8\" fill=\"#111b21\"/>\n  <!-- glints -->\n  <rect x=\"24\" y=\"51\" width=\"10\" height=\"4\" rx=\"2\" fill=\"#fff\" opacity=\".55\"/>\n  <rect x=\"78\" y=\"51\" width=\"10\" height=\"4\" rx=\"2\" fill=\"#fff\" opacity=\".55\"/>\n</svg>\n";
+const ICON_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\"> <rect width=\"1024\" height=\"1024\" rx=\"230\" fill=\"#1c1c1e\"/> <!-- the bouncer's sunglasses: two solid lenses, a short bridge --> <rect x=\"150\" y=\"410\" width=\"300\" height=\"204\" rx=\"72\" fill=\"#fff\"/> <rect x=\"574\" y=\"410\" width=\"300\" height=\"204\" rx=\"72\" fill=\"#fff\"/> <rect x=\"440\" y=\"492\" width=\"144\" height=\"40\" rx=\"20\" fill=\"#fff\"/> </svg>";
 
 const MAX_BODY = 64 * 1024;
 const MAX_ITEMS = 50;
@@ -329,7 +329,7 @@ async function page(env) {
   .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
   .bar { height: 8px; background: #ff3b30; }
   h1 { font-size: 34px; font-weight: 900; letter-spacing: -.01em; margin: 24px 0 6px; display: flex; align-items: center; gap: 12px; }
-  h1 .dot { width: 34px; height: 34px; border-radius: 8px; display: inline-block; background: url(/favicon.svg) center/contain no-repeat; }
+  h1 .dot { width: 36px; height: 36px; display: inline-block; background: url(/favicon.svg) center/contain no-repeat; }
   .sub { color: #8696a0; margin: 0 0 28px; max-width: 640px; }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
   .stat { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px; }

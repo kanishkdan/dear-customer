@@ -1,8 +1,25 @@
-# Bouncer
+<p align="center">
+  <img src="docs/icon.png" width="76" alt="">
+</p>
 
-The revenge button for WhatsApp spam. A Chrome extension for WhatsApp Web that finds every business that has been messaging you without being asked, shows how many numbers each one has burned on you, and throws them out in one click: WhatsApp's own marketing opt-out, STOP, report, block, delete.
+<h1 align="center">Bouncer</h1>
 
-Site and public Wall of Shame: <https://bouncer.kanishkdan.com>
+<p align="center">
+  Every business that spams you on WhatsApp, <b>out in one click</b>.<br>
+  Opts out, STOPs, reports, blocks, deletes. Counts the numbers they burned on you.
+</p>
+
+<p align="center">
+  <a href="https://bouncer.kanishkdan.com">bouncer.kanishkdan.com</a> ·
+  <a href="#install">install</a> ·
+  <a href="#how-it-finds-promotional-senders">how it works</a> ·
+  <a href="#the-wall-of-shame">wall of shame</a> ·
+  <a href="https://bouncer.kanishkdan.com/privacy">privacy</a>
+</p>
+
+---
+
+Blocking a spammer on WhatsApp does nothing. They have a bag of numbers and next week they're back from a new one. Bouncer is a Chrome extension for WhatsApp Web that finds every business sending you promotions, shows how many numbers each one has burned on you, and throws them out in one click: WhatsApp's own marketing opt-out, STOP, report, block, delete. **Nothing leaves your browser unless you choose to add a business to the public Wall of Shame.**
 
 ## Install
 
@@ -68,7 +85,7 @@ store/                   Chrome Web Store listing copy, promo images, blog post
 scripts/package.sh       builds the store zip into dist/
 ```
 
-## The site
+## The Wall of Shame
 
 `community/` is a Cloudflare Worker with a D1 database. `POST /report` takes the extension's reports, `GET /list.json` is the public data, `/` is the Wall of Shame, `/privacy` is the policy. To run your own: `npx wrangler d1 create bouncer-list`, put the id in `wrangler.jsonc`, `npx wrangler d1 execute bouncer-list --remote --file schema.sql`, `npx wrangler deploy`, then change `LIST_URL` in `src/background.js` and the matching `host_permissions` entry in `manifest.json`.
 
