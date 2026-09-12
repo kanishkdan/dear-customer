@@ -284,7 +284,7 @@ async function page(env) {
     if (!values || values.length < 2) return '';
     const W = 100, H = 28, max = Math.max(1, ...values), min = Math.min(...values);
     const span = Math.max(1, max - min);
-    const pts = values.map((v, i) => [ (i / (values.length - 1)) * W, H - 3 - ((v - min) / span) * (H - 6) ]);
+    const pts = values.map((v, i) => [ 3 + (i / (values.length - 1)) * (W - 6), H - 3 - ((v - min) / span) * (H - 6) ]);
     const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
     const last = pts[pts.length - 1];
     return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="#aebac1" stroke-width="1.5" vector-effect="non-scaling-stroke"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.5" fill="#e9edef"/></svg>`;
@@ -299,7 +299,7 @@ async function page(env) {
     }).join('');
     return `<svg class="cols" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Reports per day, last 30 days">${bars}
       <text x="0" y="${H - 4}" fill="#8696a0" font-size="10">${esc(days[0])}</text><text x="${W}" y="${H - 4}" fill="#8696a0" font-size="10" text-anchor="end">${esc(days[n - 1])}</text>
-      <text x="${W}" y="10" fill="#8696a0" font-size="10" text-anchor="end">peak ${max}</text></svg>`;
+      <text x="0" y="10" fill="#8696a0" font-size="10">peak ${max} in a day</text></svg>`;
   };
   const S = data.series;
   const rowsHtml = data.businesses.length
