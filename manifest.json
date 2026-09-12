@@ -37,6 +37,7 @@
         "https://web.whatsapp.com/*"
       ],
       "js": [
+        "src/keywords.js",
         "src/engine.js"
       ],
       "world": "MAIN",

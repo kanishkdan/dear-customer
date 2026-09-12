@@ -327,12 +327,23 @@
     try { const e = window.require && window.require('WAWebBusinessHSMTypes'); if (e && e.HSM_TAG_TYPE) HSM = e.HSM_TAG_TYPE; } catch (_) {}
     return HSM;
   }
-  // Keyword signals, tuned for Indian fintech and retail spam. A promo hit beats a
-  // utility tag on purpose: businesses register ad templates as utility to dodge
-  // marketing pricing, and "Important update on your account" from a bank you
-  // don't bank with is the canonical example.
-  const PROMO_RE = /\b(offer|offers|discount|sale|deal|deals|cashback|coupon|voucher|promo|promotion|limited[- ]time|limited period|hurry|last (?:day|chance)|exclusive|unlock|apply (?:now|today)|register(?: now)?|book now|shop now|buy now|order now|webinar|masterclass|flat \d+ ?%|\d+ ?% ?off|emi|emis|loan|loans|pre-?approved|credit (?:limit|card|line)|instant (?:credit|loan|cash)|eligible|eligibility|free delivery|festive|bonanza|mega|special (?:offer|price)|upgrade|reward|rewards|bonus|gift|win|invest|investment|mutual funds?|sip|ipo|demat|trading|insurance|policy|renew|avail|t&c|terms (?:and|&) conditions|click (?:here|below)|tap (?:here|below)|download (?:the|our) app|new launch|launching|introducing|don'?t miss|expires? (?:soon|today)|only for you|selected customers|dear customer|₹ ?\d|rs\.? ?\d|lakh|crore|wealth|earn|save (?:up to|more)|zero (?:fee|cost)|lifetime free)\b/gi;
-  const TXN_RE = /\b(otp|one[- ]time password|verification code|is your (?:code|otp)|do not share|order (?:id|no|number|#)|has been (?:shipped|delivered|dispatched|placed|confirmed|cancelled|received|generated|processed|initiated|credited|debited)|out for delivery|arriving|delivered|payment (?:received|successful|failed|of|reminder|due)|invoice|receipt|debited|credited|transaction|txn|a\/c|account ending|balance|statement|bills?|generated|booking (?:id|confirmed)|pnr|ticket|boarding|appointment|reminder|due (?:date|on|by)|pay by|amount due|total amount|minimum (?:amount )?due|outstanding|emi (?:due|of)|auto-?debit|mandate|premium due|renewal due|password reset|login (?:code|attempt)|verify your|kyc|re-?kyc|expir(?:es|ing|y)|tracking)\b/gi;
+  // Keyword lists live in src/keywords.js so they can be edited without touching
+  // this file. Entries starting with "re:" are regular expressions, the rest are
+  // literal phrases. A promo hit beats a utility tag on purpose: businesses
+  // register ad templates as utility to dodge marketing pricing.
+  const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const toSource = (entry) => (String(entry).startsWith('re:') ? String(entry).slice(3) : escapeRe(String(entry)));
+  const listRe = (entries, flags) => new RegExp(`\\b(?:${entries.map(toSource).join('|')})\\b`, flags);
+  const KW = (window.__bouncerKeywords && typeof window.__bouncerKeywords === 'object') ? window.__bouncerKeywords : {};
+  const PROMO_RE = listRe(Array.isArray(KW.promotional) && KW.promotional.length ? KW.promotional : ['offer', 'loan', 'discount', 'apply now', 'buy now'], 'gi');
+  const TXN_RE = listRe(Array.isArray(KW.transactional) && KW.transactional.length ? KW.transactional : ['otp', 'delivered', 'invoice', 'statement', 'bill'], 'gi');
+  const OPT_OUT_TIERS = (KW.optOutButtons && typeof KW.optOutButtons === 'object') ? KW.optOutButtons : {};
+  const optOutTier = (name, fallback) => { const l = Array.isArray(OPT_OUT_TIERS[name]) && OPT_OUT_TIERS[name].length ? OPT_OUT_TIERS[name] : fallback; return new RegExp(`(?:${l.map(toSource).join('|')})`, 'i'); };
+  const OPT_STRONG = optOutTier('strong', ['disable all', 'stop all']);
+  const OPT_MEDIUM = optOutTier('medium', ['unsubscribe', 're:opt[- ]?out']);
+  const OPT_NORMAL = optOutTier('normal', ['re:stop (?:messages|promotions|offers|marketing)']);
+  const OPT_SOFT = optOutTier('soft', ['not interested', 'no thanks']);
+  const OPT_BARE = optOutTier('bare', ['re:^stop$']);
 
   function buttonsOf(m) {
     const hb = attrOf(m, 'hydratedButtons') || attrOf(m, 'templateButtons') || attrOf(m, 'nativeFlowButtons') || attrOf(m, 'buttons');
@@ -692,11 +703,11 @@
   function optOutScore(text) {
     const t = String(text || '').toLowerCase().trim();
     if (!t) return 0;
-    if (/disable all|stop all|block all/.test(t)) return 5;
-    if (/unsubscribe|opt[- ]?out|remove me|do not contact|don'?t contact/.test(t)) return 4;
-    if (/stop (?:messages|promotions|offers|marketing|receiving|these|notifications|updates|sms|alerts)/.test(t)) return 3;
-    if (/not interested|no thanks|don'?t send|no,? thanks/.test(t)) return 2;
-    if (/^stop$/.test(t)) return 1;
+    if (OPT_STRONG.test(t)) return 5;
+    if (OPT_MEDIUM.test(t)) return 4;
+    if (OPT_NORMAL.test(t)) return 3;
+    if (OPT_SOFT.test(t)) return 2;
+    if (OPT_BARE.test(t)) return 1;
     return 0;
   }
   function chatModels(chat) {

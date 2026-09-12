@@ -30,6 +30,8 @@ Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content
 
 Business detection itself uses the contact flags WhatsApp exposes, business markers on the messages, and whether the sender is in your address book.
 
+The word lists live in `src/keywords.js`: promotional phrases, transactional phrases, and the opt-out button labels Bouncer will tap, strongest first. They're plain lists, tuned for India today. If spam where you live says something else, edit the file and open a pull request.
+
 ## What each action does
 
 | Action | Who enforces it | Effect |
@@ -55,6 +57,7 @@ Everything runs in your browser. Nothing about your chats leaves it unless you p
 
 ```
 manifest.json            MV3 manifest
+src/keywords.js          the word lists: promotional, transactional, opt-out buttons. Edit these.
 src/engine.js            runs inside WhatsApp Web: scan, classify, act, UI
 src/bridge.js            isolated-world shim: chrome.storage, badge, list fetch relay
 src/background.js        service worker: toolbar click, badge, injects wa-js after login, talks to the site
