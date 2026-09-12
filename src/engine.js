@@ -1142,22 +1142,23 @@
   #bouncer-root .bz-warn { color: var(--muted); }
 
   /* setup */
-  #bouncer-root .bz-setup { padding: 28px 24px 8px; max-width: 560px; }
+  #bouncer-root .bz-setup { padding: 28px 24px 12px; max-width: 600px; }
   #bouncer-root .bz-setup-h { font-family: var(--display); font-weight: 700; font-size: 30px; line-height: 1.08; color: var(--paper); text-wrap: balance; }
   #bouncer-root .bz-setup-s { color: var(--muted); font-size: 13px; margin: 10px 0 20px; }
-  #bouncer-root .bz-choices { border-top: 1px solid var(--line); }
-  #bouncer-root .bz-choice { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 14px; align-items: start; width: 100%; text-align: left; padding: 14px 4px 14px 2px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; margin-left: -3px; }
-  #bouncer-root .bz-choice:hover { background: #151f26; }
-  #bouncer-root .bz-choice.on { border-left-color: var(--paper); }
-  #bouncer-root .bz-choice-check { width: 18px; height: 18px; border: 1.5px solid var(--muted); border-radius: 3px; position: relative; margin-top: 1px; }
-  #bouncer-root .bz-choice.on .bz-choice-check { background: var(--paper); border-color: var(--paper); }
-  #bouncer-root .bz-choice.on .bz-choice-check::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid var(--ground); border-width: 0 2px 2px 0; transform: rotate(45deg); }
-  #bouncer-root .bz-choice-main { display: grid; gap: 3px; min-width: 0; }
-  #bouncer-root .bz-choice-t { font-weight: 600; font-size: 14px; color: var(--paper); }
-  #bouncer-root .bz-choice-b { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
-  #bouncer-root .bz-choice-n { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; color: var(--muted); padding-top: 3px; white-space: nowrap; }
-  #bouncer-root .bz-choice-n.good { color: var(--ok); }
-  #bouncer-root .bz-choice-n.warn { color: var(--ink); }
+  #bouncer-root .bz-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  #bouncer-root .bz-tile { display: grid; gap: 6px; align-content: start; text-align: left; padding: 16px 16px 14px; min-height: 132px; border: 1px solid var(--line); border-radius: 6px; background: #141e24; color: var(--muted); transition: border-color .12s, background .12s, color .12s; }
+  #bouncer-root .bz-tile:hover { border-color: var(--muted); }
+  #bouncer-root .bz-tile.on { border-color: var(--paper); background: #1a252c; color: var(--paper); }
+  #bouncer-root .bz-tile-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  #bouncer-root .bz-ic { width: 26px; height: 26px; }
+  #bouncer-root .bz-tile-check { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line); position: relative; }
+  #bouncer-root .bz-tile.on .bz-tile-check { background: var(--paper); border-color: var(--paper); }
+  #bouncer-root .bz-tile.on .bz-tile-check::after { content: ""; position: absolute; left: 5.5px; top: 2px; width: 4px; height: 8px; border: solid var(--ground); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  #bouncer-root .bz-tile-t { font-weight: 600; font-size: 15px; color: var(--paper); }
+  #bouncer-root .bz-tile-b { font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+  #bouncer-root .bz-tile-n { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  #bouncer-root .bz-tile-n.good { color: var(--ok); }
+  #bouncer-root .bz-tile-n.warn { color: var(--ink); }
 
   /* results */
   #bouncer-root .bz-done { padding: 26px 20px 8px; }
@@ -1603,12 +1604,20 @@
   // One choice per outcome. "Opt out" runs both opt-out flows: WhatsApp's own
   // (Meta's side) and STOP (the business's side). They act on different systems
   // and only together cover what each one misses.
+  const ICONS = {
+    unsub: '<path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3z"/><path d="M10 19a2 2 0 0 0 4 0"/><path d="M4 4l16 16"/>',
+    report: '<path d="M5 21V4"/><path d="M5 4h12l-2 3.5 2 3.5H5"/>',
+    block: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
+    archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/>',
+    del: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>',
+  };
+  const icon = (k) => `<svg class="bz-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
   const CHOICES = [
-    ['unsub', 'Opt out', 'Tells WhatsApp and the business to stop sending you marketing. Sends one STOP.', 'Reversible', 'good'],
-    ['report', 'Report to WhatsApp', "Lowers the number's rating until Meta throttles it.", "Can't be undone", 'warn'],
-    ['block', 'Block the number', 'It can never message you again.', 'Reversible', 'good'],
-    ['archive', 'Archive the chat', 'Out of your list. Back if they write again.', 'Reversible', 'good'],
-    ['del', 'Delete the chat', 'Gone from all your devices.', "Can't be undone", 'warn'],
+    ['unsub', 'Opt out', 'Tells WhatsApp and the business to stop marketing to you. Sends one STOP.', 'Reversible', 'good'],
+    ['report', 'Report', "Lowers the number's rating until Meta throttles it.", "Can't be undone", 'warn'],
+    ['block', 'Block', 'The number can never message you again.', 'Reversible', 'good'],
+    ['archive', 'Archive', 'Out of your list. Back if they write again.', 'Reversible', 'good'],
+    ['del', 'Delete', 'The chat is gone from all your devices.', "Can't be undone", 'warn'],
   ];
   const choiceOn = (key) => (key === 'unsub' ? !!(state.actions.optout || state.actions.stop) : !!state.actions[key]);
   function setChoice(key, on) {
@@ -1622,12 +1631,13 @@
       <div class="bz-setup">
         <div class="bz-setup-h">What do you want to do with these messages?</div>
         <div class="bz-setup-s">For every business you tick. Change it any time.</div>
-        <div class="bz-choices">
+        <div class="bz-tiles">
           ${CHOICES.map(([key, title, body, note, cls]) => `
-            <button class="bz-choice ${choiceOn(key) ? 'on' : ''}" data-act="opt" data-key="${key}" aria-pressed="${choiceOn(key) ? 'true' : 'false'}">
-              <span class="bz-choice-check"></span>
-              <span class="bz-choice-main"><span class="bz-choice-t">${title}</span><span class="bz-choice-b">${body}</span></span>
-              <span class="bz-choice-n ${cls}">${note}</span>
+            <button class="bz-tile ${choiceOn(key) ? 'on' : ''}" data-act="opt" data-key="${key}" aria-pressed="${choiceOn(key) ? 'true' : 'false'}">
+              <span class="bz-tile-top">${icon(key)}<span class="bz-tile-check"></span></span>
+              <span class="bz-tile-t">${title}</span>
+              <span class="bz-tile-b">${body}</span>
+              <span class="bz-tile-n ${cls}">${note}</span>
             </button>`).join('')}
         </div>
       </div>`;
