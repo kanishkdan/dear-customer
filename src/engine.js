@@ -61,7 +61,7 @@
     if (type === 'history') {
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0 };
         if (payload.actions && typeof payload.actions === 'object') state.actions = { ...state.actions, ...payload.actions };
         state.onboarded = !!payload.onboarded;
       }
@@ -776,7 +776,11 @@
     state.progress = { done: 0, total, biz: '', phone: '', step: '' };
     const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, archive: 0, del: 0, failed: 0, top: [] };
     let optoutDead = false;
-    const STOP_CAP = 30;
+    // Outbound messages are the only thing here that WhatsApp's anti-spam scores.
+    // Keep them few and slow: 20 per run, 40 per day, several seconds apart.
+    const today = new Date().toISOString().slice(0, 10);
+    const dayStops = state.history.stopDay === today ? (state.history.stopCount || 0) : 0;
+    const STOP_CAP = Math.max(0, Math.min(20, 40 - dayStops));
     let stopsSent = 0;
     let reportDead = false;   // after the first report timeout, stop trying for this run
     state.cancel = false;
@@ -793,6 +797,7 @@
         : null;
       for (const n of g.numbers) {
         if (state.cancel) { n.result = { cancelled: true }; sum.cancelled++; continue; }
+      if (A.stop && n === stopTarget && !STOP_CAP) n.stopSkipped = true;
         n.result = {};
         state.activeId = n.id;
         render();
@@ -811,7 +816,8 @@
         if (A.stop && n === stopTarget) {
           label('sending STOP');
           if (await step(n, 'stop', 'STOP', () => sendStop(n.id), 20000)) { sum.stop++; stopsSent++; } else sum.failed++;
-          await sleep(600 + Math.random() * 600);
+          state.history.stopDay = today; state.history.stopCount = dayStops + stopsSent;
+          await sleep(2500 + Math.random() * 3000);
         }
         if (A.report && reportDead) { n.result.report = 'skipped'; }
         else if (A.report) {

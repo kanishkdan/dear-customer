@@ -65,10 +65,18 @@ The word lists live in `src/keywords.js`: promotional phrases, transactional phr
 
 Everything runs in your browser. Nothing about your chats leaves it unless you press **Add to the Wall of Shame**, and then only the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. Full policy: <https://bouncer.kanishkdan.com/privacy>.
 
+## Is this safe for my number?
+
+WhatsApp bans accounts for sending, not for receiving. Its anti-spam system scores outbound messages, especially many of them to people who never wrote to you, and it bans unofficial clients it can fingerprint. Bouncer is neither of those things: it runs inside the official WhatsApp Web client and calls the same functions the buttons call, so the server sees an ordinary linked device. Opting out, reporting, blocking, archiving and deleting are all things you could do by hand and none of them send a message.
+
+The one action that does send a message is STOP, and it is the only real exposure. Bouncer keeps it small: one STOP per business, only to a number that messaged you in the last 30 days and only as a reply inside that existing conversation, at most 20 per run and 40 per day, spaced several seconds apart. Replying once to a business that wrote to you first is about as far from a spam pattern as a message can be. If that still worries you, untick Opt out on the setup screen and Bouncer sends nothing at all.
+
+What would raise the risk: modifying the code to send more, faster, or to numbers that never messaged you. Don't.
+
 ## Honest limits
 
 - Your phone still buzzes once per new number. Phone and browser receive a message at the same instant.
-- Automation is against WhatsApp's terms. In practice bans target bulk senders, and Bouncer sends at most one STOP per business with pauses between, but the risk is not zero.
+- Automation is against WhatsApp's terms. In practice bans target bulk senders and unofficial clients, and Bouncer is neither, but the risk is not zero. See "Is this safe for my number?" above.
 - WhatsApp Web ships updates often. Bouncer talks to WhatsApp Web through [wa-js](https://github.com/wppconnect-team/wa-js), bundled unmodified. When WhatsApp changes internals it can break until wa-js is updated; drop a newer `dist/wppconnect-wa.js` into `vendor/` and reload the extension.
 - wa-js is injected only after your chat list is on screen, never on the QR page, because injecting early makes it cache WhatsApp's lazily loaded modules as missing.
 
