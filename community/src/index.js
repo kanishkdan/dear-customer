@@ -146,6 +146,33 @@ async function totalsRow(env) {
   return { people: t.people || 0, businesses: t.businesses || 0, numbers: t.numbers || 0, reports: t.reports || 0 };
 }
 
+// Last 30 days, one bucket per UTC day: new report rows, first-time people,
+// first-time businesses, first-time numbers. Cumulative lines start from the
+// totals before the window so they read as growth, not as activity.
+async function dailySeries(env, totals) {
+  const DAYS = 30;
+  const today = Math.floor(Date.now() / 86400000);
+  const since = (today - DAYS + 1) * 86400;
+  const days = Array.from({ length: DAYS }, (_, i) => new Date((today - DAYS + 1 + i) * 86400000).toISOString().slice(0, 10));
+  const q = (sql) => env.DB.prepare(sql).bind(since).all().then((r) => r.results || []);
+  const [reports, people, businesses, numbers] = await Promise.all([
+    q(`SELECT date(created_at, 'unixepoch') AS d, COUNT(*) AS n FROM reports WHERE created_at >= ?1 GROUP BY d`),
+    q(`SELECT d, COUNT(*) AS n FROM (SELECT MIN(created_at) AS t, date(MIN(created_at), 'unixepoch') AS d FROM reports GROUP BY install_id) WHERE t >= ?1 GROUP BY d`),
+    q(`SELECT d, COUNT(*) AS n FROM (SELECT MIN(created_at) AS t, date(MIN(created_at), 'unixepoch') AS d FROM reports GROUP BY name_key) WHERE t >= ?1 GROUP BY d`),
+    q(`SELECT d, COUNT(*) AS n FROM (SELECT MIN(created_at) AS t, date(MIN(created_at), 'unixepoch') AS d FROM numbers GROUP BY number_hash) WHERE t >= ?1 GROUP BY d`),
+  ]);
+  const toDaily = (rows) => { const m = new Map(rows.map((r) => [r.d, r.n])); return days.map((d) => m.get(d) || 0); };
+  const cumulative = (daily, total) => { const inWindow = daily.reduce((a, b) => a + b, 0); let acc = Math.max(0, total - inWindow); return daily.map((n) => (acc += n)); };
+  const rDaily = toDaily(reports), pDaily = toDaily(people), bDaily = toDaily(businesses), nDaily = toDaily(numbers);
+  return {
+    days,
+    reports: { daily: rDaily, cumulative: cumulative(rDaily, totals.reports) },
+    people: { daily: pDaily, cumulative: cumulative(pDaily, totals.people) },
+    businesses: { daily: bDaily, cumulative: cumulative(bDaily, totals.businesses) },
+    numbers: { daily: nDaily, cumulative: cumulative(nDaily, totals.numbers) },
+  };
+}
+
 async function listData(env) {
   const [rows, totals, hashes] = await Promise.all([
     env.DB.prepare(`
@@ -167,9 +194,12 @@ async function listData(env) {
   ]);
   const hashMap = {};
   for (const h of hashes.results || []) hashMap[h.number_hash] = h.name_key;
+  let series = null;
+  try { series = await dailySeries(env, totals); } catch (e) { console.error(JSON.stringify({ level: 'error', where: 'dailySeries', message: String((e && e.message) || e) })); }
   return {
     updated: Math.floor(Date.now() / 1000),
     totals,
+    series,
     businesses: (rows.results || []).map((r) => ({
       key: r.key, name: r.name, people: r.people, promo_people: r.promo_people || 0, reports: r.reports, is_api: !!r.is_api,
       numbers: r.numbers, first_seen: r.first_seen, last_seen: r.last_seen,
@@ -250,6 +280,28 @@ async function page(env) {
     if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
     return `${Math.floor(d / 86400)}d ago`;
   };
+  const spark = (values) => {
+    if (!values || values.length < 2) return '';
+    const W = 100, H = 28, max = Math.max(1, ...values), min = Math.min(...values);
+    const span = Math.max(1, max - min);
+    const pts = values.map((v, i) => [ (i / (values.length - 1)) * W, H - 3 - ((v - min) / span) * (H - 6) ]);
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const last = pts[pts.length - 1];
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="#aebac1" stroke-width="1.5" vector-effect="non-scaling-stroke"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.5" fill="#e9edef"/></svg>`;
+  };
+  const columns = (days, values) => {
+    if (!values || !values.length) return '';
+    const n = values.length, W = 600, H = 96, pad = 4, cw = (W - pad * (n - 1)) / n, max = Math.max(1, ...values);
+    const bars = values.map((v, i) => {
+      const h = v ? Math.max(3, Math.round((v / max) * (H - 24))) : 0;
+      const x = (i * (cw + pad)).toFixed(1), y = (H - 18 - h).toFixed(1);
+      return `<rect x="${x}" y="${y}" width="${cw.toFixed(1)}" height="${h}" rx="2" fill="${v ? '#e0332b' : '#1f2c34'}"${v ? '' : ` height="2" y="${H - 20}"`}><title>${esc(days[i])} · ${v} ${v === 1 ? 'report' : 'reports'}</title></rect>`;
+    }).join('');
+    return `<svg class="cols" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Reports per day, last 30 days">${bars}
+      <text x="0" y="${H - 4}" fill="#8696a0" font-size="10">${esc(days[0])}</text><text x="${W}" y="${H - 4}" fill="#8696a0" font-size="10" text-anchor="end">${esc(days[n - 1])}</text>
+      <text x="${W}" y="10" fill="#8696a0" font-size="10" text-anchor="end">peak ${max}</text></svg>`;
+  };
+  const S = data.series;
   const rowsHtml = data.businesses.length
     ? data.businesses.map((b, i) => `
       <tr>
@@ -279,6 +331,10 @@ async function page(env) {
   .stat { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px; }
   .stat .n { font-size: 30px; font-weight: 900; line-height: 1; color: #e9edef; }
   .stat .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; margin-top: 6px; }
+  .stat .spark { display: block; width: 100%; height: 28px; margin-top: 10px; }
+  .activity { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px 10px; margin-bottom: 28px; }
+  .activity .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .activity .cols { display: block; width: 100%; height: 96px; }
   table { width: 100%; border-collapse: collapse; background: #111b21; border: 1px solid #2a3942; border-radius: 12px; overflow: hidden; }
   th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #1f2c34; }
   th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; font-weight: 700; background: #182229; }
@@ -302,11 +358,12 @@ async function page(env) {
   <h1><span class="dot"></span>Wall of Shame</h1>
   <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. A business here sent promotions to the people who bounced it; it may send alerts others want, and Bouncer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Bouncer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
   <div class="stats">
-    <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Businesses</div></div>
-    <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div></div>
-    <div class="stat"><div class="n">${data.totals.people}</div><div class="l">People reporting</div></div>
-    <div class="stat"><div class="n">${data.totals.reports}</div><div class="l">Reports</div></div>
+    <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Businesses</div>${S ? spark(S.businesses.cumulative) : ''}</div>
+    <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div>${S ? spark(S.numbers.cumulative) : ''}</div>
+    <div class="stat"><div class="n">${data.totals.people}</div><div class="l">People reporting</div>${S ? spark(S.people.cumulative) : ''}</div>
+    <div class="stat"><div class="n">${data.totals.reports}</div><div class="l">Reports</div>${S ? spark(S.reports.cumulative) : ''}</div>
   </div>
+  ${S ? `<div class="activity"><div class="l"><span>Reports per day</span><span>last 30 days · lines above show growth over the same period</span></div>${columns(S.days, S.reports.daily)}</div>` : ''}
   <table>
     <thead><tr><th>#</th><th>Business</th><th class="num">People bounced for promos</th><th class="num">Numbers burned</th><th class="num">Last seen</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
