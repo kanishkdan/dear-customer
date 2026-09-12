@@ -1,5 +1,5 @@
 /*
- * Bouncer — page engine. Runs in WhatsApp Web's own JS context next to wa-js.
+ * Dear Customer — page engine. Runs in WhatsApp Web's own JS context next to wa-js.
  *
  * Flow: scan chats -> classify senders -> group by business -> user ticks ->
  * per number: WhatsApp's marketing opt-out -> STOP (button or text, latest live
@@ -14,7 +14,7 @@
   window.__bouncerLoaded = true;
 
   const VERSION = '1.0.0';
-  const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><rect x="150" y="410" width="300" height="204" rx="72" fill="#fff"/><rect x="574" y="410" width="300" height="204" rx="72" fill="#fff"/><rect x="440" y="492" width="144" height="40" rx="20" fill="#fff"/></svg>';
+  const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><path d="M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z" fill="#fff"/><rect x="262" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="566" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="452" y="418" width="120" height="34" rx="17" fill="#1c1c1e"/></svg>';
   const STOP_TEXT = 'STOP';
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const nowSec = () => Math.floor(Date.now() / 1000);
@@ -972,7 +972,7 @@
     }
     x.fillStyle = '#2a3942'; x.fillRect(88, 596, 1024, 1);
     x.fillStyle = '#8696a0'; x.font = `600 14px ${CARD_DISPLAY}`; x.textAlign = 'right';
-    x.fillText('B O U N C E R   F O R   W H A T S A P P   W E B', 1112, 622);
+    x.fillText('D E A R   C U S T O M E R .   N O .', 1112, 622);
     x.textAlign = 'left';
     return c;
   }
@@ -1024,7 +1024,7 @@
   #bouncer-root .caps { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
 
   /* pill */
-  #bouncer-root .bz-pill { position: fixed; left: 16px; bottom: 16px; display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 14px; border-radius: 3px; background: var(--ground); color: var(--paper); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-family: var(--display); text-transform: uppercase; letter-spacing: .16em; font-weight: 600; font-size: 13px; transition: background .15s; }
+  #bouncer-root .bz-pill { position: fixed; left: 16px; bottom: 16px; display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 14px; border-radius: 3px; background: var(--ground); color: var(--paper); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 600; font-size: 13px; white-space: nowrap; transition: background .15s; }
   #bouncer-root .bz-pill:hover { background: #182229; }
   #bouncer-root .bz-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); flex: none; }
   #bouncer-root .bz-logo { width: 22px; height: 22px; flex: none; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
@@ -1045,7 +1045,7 @@
   #bouncer-root .bz-wallrow .t small { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 9px; color: var(--muted); margin-top: 5px; }
   #bouncer-root .bz-panel.open { transform: none; visibility: visible; transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease, visibility 0s; }
   #bouncer-root .bz-head { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
-  #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 14px; }
+  #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-weight: 700; font-size: 14px; white-space: nowrap; }
   #bouncer-root .bz-wall { margin-left: auto; font-size: 11px; color: var(--muted); padding: 6px 8px; }
   #bouncer-root .bz-wall:hover { color: var(--paper); }
   #bouncer-root .bz-x { width: 30px; height: 30px; color: var(--muted); font-size: 20px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
@@ -1252,7 +1252,7 @@
     root = document.createElement('div');
     root.id = 'bouncer-root';
     root.innerHTML = `
-      <button class="bz-pill" data-act="toggle" title="Bouncer">${LOGO}Bouncer<span class="bz-count" hidden></span></button>
+      <button class="bz-pill" data-act="toggle" title="Dear Customer">${LOGO}Dear Customer<span class="bz-count" hidden></span></button>
       <aside class="bz-panel" role="dialog" aria-label="Bouncer"></aside>`;
     document.body.appendChild(root);
     pill = root.querySelector('.bz-pill');
@@ -1416,7 +1416,7 @@
     const split = dockPanel() && !setup;
     const chart = !split && state.view === 'chart';
     const head = `
-      <div class="bz-head">${LOGO}<span class="bz-word">Bouncer</span>
+      <div class="bz-head">${LOGO}<span class="bz-word">Dear Customer</span>
         <span style="margin-left:auto"></span>
         ${setup ? (state.onboarded ? `<button class="bz-wall caps" data-act="setup-done">← Back</button>` : '') : chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Collapse ⇤' : 'Expand ⇥'}</button>`}
         ${wall && !chart && !setup ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
@@ -1757,7 +1757,7 @@
     });
     x.fillStyle = '#2a3942'; x.fillRect(84, H - 56, 1028, 1);
     x.fillStyle = '#8696a0'; x.font = `600 14px ${CARD_DISPLAY}`; x.textAlign = 'right';
-    x.fillText('B O U N C E R   ·   B O U N C E R . K A N I S H K D A N . C O M', 1112, H - 28); x.textAlign = 'left';
+    x.fillText('D E A R   C U S T O M E R   ·   D E A R C U S T O M E R . K A N I S H K D A N . C O M', 1112, H - 28); x.textAlign = 'left';
     return c;
   }
   function downloadChartCard() {

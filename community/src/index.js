@@ -1,5 +1,5 @@
 /*
- * bouncer-list — the public list behind Bouncer for WhatsApp Web.
+ * dear-customer — the public list behind Dear Customer, a Chrome extension for WhatsApp Web.
  *
  *   POST /report     extension sends { install, items:[{ name, is_api, cc, numbers:[sha256…] }] }
  *   GET  /list.json  aggregated list the extension pulls daily
@@ -9,10 +9,8 @@
  * and a random per-install id. No user identity, no message content.
  */
 
-const ICON_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\"> <rect width=\"1024\" height=\"1024\" rx=\"230\" fill=\"#1c1c1e\"/> <!-- the bouncer's sunglasses: two solid lenses, a short bridge --> <rect x=\"150\" y=\"410\" width=\"300\" height=\"204\" rx=\"72\" fill=\"#fff\"/> <rect x=\"574\" y=\"410\" width=\"300\" height=\"204\" rx=\"72\" fill=\"#fff\"/> <rect x=\"440\" y=\"492\" width=\"144\" height=\"40\" rx=\"20\" fill=\"#fff\"/> </svg>";
+const ICON_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\"><rect width=\"1024\" height=\"1024\" rx=\"230\" fill=\"#1c1c1e\"/><path d=\"M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z\" fill=\"#fff\"/><rect x=\"262\" y=\"372\" width=\"196\" height=\"132\" rx=\"48\" fill=\"#1c1c1e\"/><rect x=\"566\" y=\"372\" width=\"196\" height=\"132\" rx=\"48\" fill=\"#1c1c1e\"/><rect x=\"452\" y=\"418\" width=\"120\" height=\"34\" rx=\"17\" fill=\"#1c1c1e\"/></svg>";
 
-// A business is only named publicly once this many different people have bounced
-// it for promotional messages. One person's opinion is not a public accusation.
 const DEFAULT_MIN_REPORTERS = 3;
 const minReporters = (env) => {
   const n = parseInt(env.MIN_REPORTERS, 10);
@@ -245,7 +243,7 @@ function privacyPage(env) {
   const repo = env.REPO_URL || '#';
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bouncer · Privacy</title>
+<title>Dear Customer · Privacy</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root { color-scheme: dark; }
@@ -260,10 +258,10 @@ function privacyPage(env) {
 </style></head>
 <body><div class="bar"></div><div class="wrap">
   <h1>Privacy</h1>
-  <p class="muted">Bouncer, a Chrome extension for WhatsApp Web, and this website. Last updated 12 September 2026.</p>
+  <p class="muted">Dear Customer, a Chrome extension for WhatsApp Web, and this website. Last updated 12 September 2026.</p>
 
   <h2>The short version</h2>
-  <p>Bouncer runs inside your browser. It reads your WhatsApp Web chats locally to find business senders, and it acts on them locally through WhatsApp Web itself. Nothing about your chats leaves your computer unless you press <b>Add to the Wall of Shame</b>.</p>
+  <p>Dear Customer runs inside your browser. It reads your WhatsApp Web chats locally to find business senders, and it acts on them locally through WhatsApp Web itself. Nothing about your chats leaves your computer unless you press <b>Add to the Wall of Shame</b>.</p>
 
   <h2>What the extension stores on your computer</h2>
   <ul>
@@ -290,7 +288,7 @@ function privacyPage(env) {
   <p>If a business is listed and you believe that is wrong, or you run that business, <a href="${esc(repo)}/issues/new?title=Removal%20request">open a removal request</a>. Entries come from users, not from the site operator.</p>
 
   <h2>Third parties</h2>
-  <p>No analytics, no advertising, no trackers. The site runs on Cloudflare. The extension uses <a href="https://github.com/wppconnect-team/wa-js">wa-js</a>, an open-source library, bundled locally. Bouncer is not affiliated with WhatsApp or Meta.</p>
+  <p>No analytics, no advertising, no trackers. The site runs on Cloudflare. The extension uses <a href="https://github.com/wppconnect-team/wa-js">wa-js</a>, an open-source library, bundled locally. Dear Customer is not affiliated with WhatsApp or Meta.</p>
 
   <h2>Contact</h2>
   <p>Questions go to the <a href="${esc(repo)}/issues">issue tracker</a>.</p>
@@ -342,7 +340,7 @@ async function page(env) {
   const html = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bouncer · Wall of Shame</title>
+<title>Dear Customer · Wall of Shame</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta name="description" content="Businesses that spam Indian WhatsApp, ranked by how many people bounced them and how many numbers they burned.">
 <style>
@@ -352,7 +350,8 @@ async function page(env) {
   .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
   .bar { height: 8px; background: #ff3b30; }
   h1 { font-size: 34px; font-weight: 900; letter-spacing: -.01em; margin: 24px 0 6px; display: flex; align-items: center; gap: 12px; }
-  h1 .dot { width: 36px; height: 36px; display: inline-block; background: url(/favicon.svg) center/contain no-repeat; }
+  h1 .dot { width: 38px; height: 38px; display: inline-block; background: url(/favicon.svg) center/contain no-repeat; border-radius: 9px; }
+  .tagline { font-size: 15px; color: #8696a0; margin: -2px 0 18px; letter-spacing: .02em; }
   .sub { color: #8696a0; margin: 0 0 28px; max-width: 640px; }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
   .stat { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px; }
@@ -386,7 +385,8 @@ async function page(env) {
 </style></head>
 <body><div class="bar"></div><div class="wrap">
   <h1><span class="dot"></span>Wall of Shame</h1>
-  <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is only named here once ${data.totals.min} different people have bounced it</b>, so no one is listed on one person's say-so. A business here sent promotions to the people who bounced it; it may send alerts others want, and Bouncer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Bouncer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
+  <p class="tagline">Dear Customer. No.</p>
+  <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is only named here once ${data.totals.min} different people have bounced it</b>, so no one is listed on one person's say-so. A business here sent promotions to the people who bounced it; it may send alerts others want, and Dear Customer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Dear Customer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
   <div class="stats">
     <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Listed</div>${S ? spark(S.businesses.cumulative) : ''}</div>
     <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div>${S ? spark(S.numbers.cumulative) : ''}</div>
@@ -399,8 +399,8 @@ async function page(env) {
     <tbody>${rowsHtml}</tbody>
   </table>
   <div class="cta">
-    <div style="flex:1;min-width:240px"><b>Add yours.</b> Install Bouncer on WhatsApp Web, bounce the businesses spamming you, and tick "Add to the public list".</div>
-    <a class="btn" href="${esc(repo)}">Get Bouncer</a>
+    <div style="flex:1;min-width:240px"><b>Add yours.</b> Install Dear Customer on WhatsApp Web, bounce the businesses spamming you, and press "Add to the Wall of Shame".</div>
+    <a class="btn" href="${esc(repo)}">Get it</a>
   </div>
   <footer>
     <p><b>What's stored.</b> The business name exactly as WhatsApp shows it, a SHA-256 hash of each number it used, whether it's an official Business Platform account, the country code, and a random id per browser so one person can't be counted twice. No phone numbers, no message content, no identity of the person reporting.</p>

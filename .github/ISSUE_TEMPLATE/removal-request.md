@@ -9,6 +9,6 @@ labels: removal
 
 **Why it should be removed**
 
-Entries come from Bouncer users who reported the business after receiving messages they never asked for. If you run the business, say so, and say what has changed (for example, you have removed the numbers people reported from your marketing lists).
+Entries come from Dear Customer users who reported the business after receiving messages they never asked for. If you run the business, say so, and say what has changed (for example, you have removed the numbers people reported from your marketing lists).
 
 **A way to verify you represent the business** (a work email domain, a link to an official page that names a contact)

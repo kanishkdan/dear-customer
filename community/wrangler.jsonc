@@ -6,12 +6,13 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
-    "REPO_URL": "https://github.com/kanishkdan/bouncer",
-    "SITE_URL": "https://bouncer.kanishkdan.com",
+    "REPO_URL": "https://github.com/kanishkdan/dear-customer",
+    "SITE_URL": "https://dearcustomer.kanishkdan.com",
     "MIN_REPORTERS": "3"
   },
   "workers_dev": true,
   "routes": [
+    { "pattern": "dearcustomer.kanishkdan.com", "custom_domain": true },
     { "pattern": "bouncer.kanishkdan.com", "custom_domain": true }
   ],
   "d1_databases": [

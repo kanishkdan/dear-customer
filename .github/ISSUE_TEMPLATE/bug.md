@@ -11,6 +11,6 @@ labels: bug
 
 **WhatsApp Web version** (WhatsApp Web → Settings → Help, or `window.Debug.VERSION` in the console)
 
-**Bouncer version**
+**Dear Customer version**
 
-**Diagnostics** (open Bouncer, press "Copy diagnostics" on the empty state, paste here; it contains business names and masked numbers only)
+**Diagnostics** (open Dear Customer, press "Copy diagnostics" on the empty state, paste here; it contains business names and masked numbers only)

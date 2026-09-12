@@ -1,5 +1,5 @@
-// Bouncer keyword lists. Plain phrases, matched case-insensitively on word
-// boundaries. Edit these to teach Bouncer what promotional and transactional
+// Dear Customer keyword lists. Plain phrases, matched case-insensitively on word
+// boundaries. Edit these to teach Dear Customer what promotional and transactional
 // messages look like where you live. Pull requests welcome.
 //
 // Rules of thumb:

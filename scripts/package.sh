@@ -3,7 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VERSION=$(node -e 'process.stdout.write(require("./manifest.json").version)')
-OUT="dist/bouncer-${VERSION}.zip"
+SLUG=$(node -e 'process.stdout.write(require("./manifest.json").name.toLowerCase().replace(/[^a-z0-9]+/g,"-"))')
+OUT="dist/${SLUG}-${VERSION}.zip"
 mkdir -p dist
 rm -f "$OUT"
 zip -q -r "$OUT" manifest.json src vendor icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png -x '*.DS_Store'

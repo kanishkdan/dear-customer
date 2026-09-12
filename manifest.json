@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Bouncer",
-  "short_name": "Bouncer",
+  "name": "Dear Customer",
+  "short_name": "Dear Customer",
   "version": "1.0.0",
   "description": "Finds every promotional sender in your WhatsApp Web chats and opts out, STOPs, reports, blocks and deletes them in one click.",
-  "homepage_url": "https://bouncer.kanishkdan.com",
+  "homepage_url": "https://dearcustomer.kanishkdan.com",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon16.png",
@@ -13,7 +13,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Bouncer",
+    "default_title": "Dear Customer",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -28,7 +28,7 @@
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://bouncer.kanishkdan.com/*"
+    "https://dearcustomer.kanishkdan.com/*"
   ],
   "background": {
     "service_worker": "src/background.js"

@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="230" fill="#1c1c1e"/>
-  <!-- the bouncer's sunglasses: two solid lenses, a short bridge -->
-  <rect x="150" y="410" width="300" height="204" rx="72" fill="#fff"/>
-  <rect x="574" y="410" width="300" height="204" rx="72" fill="#fff"/>
-  <rect x="440" y="492" width="144" height="40" rx="20" fill="#fff"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><path d="M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z" fill="#fff"/><rect x="262" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="566" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="452" y="418" width="120" height="34" rx="17" fill="#1c1c1e"/></svg>

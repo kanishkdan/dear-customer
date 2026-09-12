@@ -1,10 +1,10 @@
 # Chrome Web Store listing
 
-Everything the Developer Dashboard asks for, in order. Upload `dist/bouncer-1.0.0.zip` from `scripts/package.sh`.
+Everything the Developer Dashboard asks for, in order. Upload `dist/dear-customer-1.0.0.zip` from `scripts/package.sh`.
 
 ## Store listing
 
-**Name:** Bouncer
+**Name:** Dear Customer
 
 **Summary (132 max):** Finds every promotional sender in your WhatsApp Web chats and opts out, STOPs, reports, blocks and deletes them in one click.
 
@@ -16,7 +16,7 @@ Everything the Developer Dashboard asks for, in order. Upload `dist/bouncer-1.0.
 
 The revenge button for WhatsApp spam.
 
-Bouncer runs inside WhatsApp Web. Open it and it lists every business that has been sending you promotions, ranked by how many different numbers each one has burned on you. Tick the ones you're done with and press Bounce. For each number it:
+Dear Customer runs inside WhatsApp Web. Open it and it lists every business that has been sending you promotions, ranked by how many different numbers each one has burned on you. Tick the ones you're done with and press Bounce. For each number it:
 
 • Stops marketing — WhatsApp's own "Stop offers and announcements" opt-out, which Meta enforces on the whole business account, not just one number
 • Sends STOP — taps the opt-out button on their latest message ("Disable all communication", "Unsubscribe", "STOP") the way the vendor's bot expects, and only types STOP when there's no button
@@ -24,11 +24,11 @@ Bouncer runs inside WhatsApp Web. Open it and it lists every business that has b
 • Blocks it
 • Archives the chat, or deletes it if you choose
 
-The first time you open it, Bouncer asks what you want it to do and explains each option and whether it can be undone.
+The first time you open it, Dear Customer asks what you want it to do and explains each option and whether it can be undone.
 
 Businesses that only send order updates, OTPs and alerts are kept out of the way under All, so your bank and your grocer stay untouched. Click any name to open the chat and check before you act.
 
-Optionally add the businesses that spammed you to the public Wall of Shame at bouncer.kanishkdan.com, ranked by how many people bounced them for promotions and how many numbers they burned. Names and hashed numbers only, never your data, and the list never decides for you: what gets ticked depends on what a business sends you.
+Optionally add the businesses that spammed you to the public Wall of Shame at dearcustomer.kanishkdan.com, ranked by how many people bounced them for promotions and how many numbers they burned. Names and hashed numbers only, never your data, and the list never decides for you: what gets ticked depends on what a business sends you.
 
 Everything runs in your browser. Nothing about your chats leaves it unless you choose to add a business to the list.
 
@@ -53,19 +53,19 @@ Requires a WhatsApp account linked to WhatsApp Web. Not affiliated with WhatsApp
 - `activeTab` — opens the panel in the current WhatsApp Web tab when the toolbar icon is clicked.
 - `scripting` — injects the bundled wa-js library (vendor/wppconnect-wa.js, shipped inside the extension, not remote) into WhatsApp Web after the user has logged in. It cannot be a static content script because injecting it before login breaks it.
 - Host `https://web.whatsapp.com/*` — the only site the extension works on.
-- Host `https://bouncer.kanishkdan.com/*` — downloads the public list of reported businesses every six hours and, only when the user presses "Add to the Wall of Shame", uploads the business names and hashed numbers they ticked.
+- Host `https://dearcustomer.kanishkdan.com/*` — downloads the public list of reported businesses every six hours and, only when the user presses "Add to the Wall of Shame", uploads the business names and hashed numbers they ticked.
 
 **Remote code:** No. All code ships in the package.
 
 **Data usage:** Website content (business names and hashed phone numbers from WhatsApp chats), only when the user explicitly submits them. Not personally identifiable information about the user. Not sold, not used for purposes unrelated to the extension's single purpose, not used for creditworthiness or lending.
 
-**Privacy policy URL:** https://bouncer.kanishkdan.com/privacy
+**Privacy policy URL:** https://dearcustomer.kanishkdan.com/privacy
 
 ## Review notes (for the reviewer box)
 
 This extension helps a WhatsApp user unsubscribe from businesses that message them. It does not send bulk messages and is not related to the WhatsApp marketing/spamware extension cluster removed in 2025. Its only outbound action is a single STOP reply per business, inside a conversation that business started, capped at 20 per run and 40 per day, and the user can disable it. Every other action (opt out, report, block, archive, delete) mirrors a control in WhatsApp's own interface and applies to the user's own chats.
 
-Testing requires a WhatsApp account linked to web.whatsapp.com. After linking, wait for the chat list to appear, then click the Bouncer pill at bottom-left or the toolbar icon. The panel lists business senders; nothing is sent or changed until the user presses Bounce. The extension automates actions the user could do by hand in WhatsApp Web (block, delete, report, reply, opt out). The bundled library wa-js is open source (Apache 2.0, github.com/wppconnect-team/wa-js) and is included unmodified.
+Testing requires a WhatsApp account linked to web.whatsapp.com. After linking, wait for the chat list to appear, then click the Dear Customer pill at bottom-left or the toolbar icon. The panel lists business senders; nothing is sent or changed until the user presses Bounce. The extension automates actions the user could do by hand in WhatsApp Web (block, delete, report, reply, opt out). The bundled library wa-js is open source (Apache 2.0, github.com/wppconnect-team/wa-js) and is included unmodified.
 
 ## The elephant: Google purged 131 WhatsApp Web extensions
 
@@ -73,8 +73,8 @@ In October 2025 Google removed a cluster of 131 Chrome extensions that injected 
 
 The difference, stated plainly in the review notes:
 
-- Those extensions **send** messages to many recipients. Bouncer sends at most one reply per business, only into a conversation that business started, capped at 20 per run and 40 per day, and the user can turn even that off.
-- Those extensions exist to help businesses reach people. Bouncer exists to help a person get businesses to stop reaching them. It is the opposite direction.
+- Those extensions **send** messages to many recipients. Dear Customer sends at most one reply per business, only into a conversation that business started, capped at 20 per run and 40 per day, and the user can turn even that off.
+- Those extensions exist to help businesses reach people. Dear Customer exists to help a person get businesses to stop reaching them. It is the opposite direction.
 - Every other action it takes (opt out, report, block, archive, delete) is something WhatsApp's own UI offers, applied to the user's own chats.
 - No remote code, no server-side message queue, no contact list upload, no scheduling, no bulk send of any kind.
 
@@ -82,12 +82,12 @@ If the first submission is rejected, do not argue the category. Resubmit with th
 
 ## Things that can get it rejected, and the answer
 
-- **Trademark.** The name is "Bouncer", not "Bouncer for WhatsApp". "WhatsApp Web" appears only to describe compatibility, with a non-affiliation line.
+- **Trademark.** The name is "Dear Customer", not "Dear Customer for WhatsApp". "WhatsApp Web" appears only to describe compatibility, with a non-affiliation line.
 - **Host permissions scope.** Two hosts, both justified above. Do not add more.
 - **User data transmission.** Opt-in per run, disclosed in the UI at the moment of sending, covered by the policy.
 - **Automation of a third-party site.** Disclosed plainly in the description.
 
 ## After approval
 
-- Put the store URL in README.md under Install and on the site's "Get Bouncer" button (`REPO_URL` in `community/wrangler.jsonc` can point at the store instead of GitHub).
+- Put the store URL in README.md under Install and on the site's "Get Dear Customer" button (`REPO_URL` in `community/wrangler.jsonc` can point at the store instead of GitHub).
 - Tag a GitHub release with the same zip.

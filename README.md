@@ -2,24 +2,25 @@
   <img src="docs/icon.png" width="76" alt="">
 </p>
 
-<h1 align="center">Bouncer</h1>
+<h1 align="center">Dear Customer</h1>
 
 <p align="center">
-  Every business that spams you on WhatsApp, <b>out in one click</b>.<br>
-  Opts out, STOPs, reports, blocks, deletes. Counts the numbers they burned on you.
+  <b>Dear Customer. No.</b><br>
+  Every business that spams you on WhatsApp, out in one click.<br>
+  Opts out, STOPs, reports, blocks, archives. Counts the numbers they burned on you.
 </p>
 
 <p align="center">
-  <a href="https://bouncer.kanishkdan.com">bouncer.kanishkdan.com</a> ·
+  <a href="https://dearcustomer.kanishkdan.com">dearcustomer.kanishkdan.com</a> ·
   <a href="#install">install</a> ·
   <a href="#how-it-finds-promotional-senders">how it works</a> ·
   <a href="#the-wall-of-shame">wall of shame</a> ·
-  <a href="https://bouncer.kanishkdan.com/privacy">privacy</a>
+  <a href="https://dearcustomer.kanishkdan.com/privacy">privacy</a>
 </p>
 
 ---
 
-Blocking a spammer on WhatsApp does nothing. They have a bag of numbers and next week they're back from a new one. Bouncer is a Chrome extension for WhatsApp Web that finds every business sending you promotions, shows how many numbers each one has burned on you, and throws them out in one click: WhatsApp's own marketing opt-out, STOP, report, block, delete. **Nothing leaves your browser unless you choose to add a business to the public Wall of Shame.**
+Every one of these messages opens the same way. Blocking the sender does nothing. They have a bag of numbers and next week they're back from a new one. Dear Customer is a Chrome extension for WhatsApp Web that finds every business sending you promotions, shows how many numbers each one has burned on you, and throws them out in one click: WhatsApp's own marketing opt-out, STOP, report, block, delete. **Nothing leaves your browser unless you choose to add a business to the public Wall of Shame.**
 
 ## Install
 
@@ -28,15 +29,15 @@ Chrome Web Store listing is pending review. Until then:
 1. Download the latest release zip from the Releases page, or clone this repo.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, pick the folder.
 3. Open <https://web.whatsapp.com> and link your phone if you haven't.
-4. A **Bouncer** pill appears bottom-left once your chats are showing. Click it, or click the toolbar icon.
+4. A **Dear Customer** pill appears bottom-left once your chats are showing. Click it, or click the toolbar icon.
 
 Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content scripts in the page world (Edge, Brave, Arc).
 
 ## Use
 
-- Bouncer reads your chats and opens on **Promotional**: every business that sent you marketing in the period you pick (this week by default). Each row shows the message count, the last message, and in red how many different numbers that business has ever used on you. Rows are ranked by that count.
+- Dear Customer reads your chats and opens on **Promotional**: every business that sent you marketing in the period you pick (this week by default). Each row shows the message count, the last message, and in red how many different numbers that business has ever used on you. Rows are ranked by that count.
 - Promotional rows are ticked. Click a name to open the chat and check. Switch to **All** to see senders that only sent order updates, alerts or codes, small businesses on the WhatsApp Business app, and unknown numbers not in your contacts.
-- The first time you open it, Bouncer asks what you want to do with these messages and shows the five choices as tiles with what each one does and whether it can be undone. Opt out is one choice that runs both opt-out mechanisms. The default is opt out, report, block and archive; delete is off. **Change** under the Bounce button brings that screen back.
+- The first time you open it, Dear Customer asks what you want to do with these messages and shows the five choices as tiles with what each one does and whether it can be undone. Opt out is one choice that runs both opt-out mechanisms. The default is opt out, report, block and archive; delete is off. **Change** under the Bounce button brings that screen back.
 - Press **Bounce**. Progress shows per number, and a Stop button ends the run early. When it finishes you get a stamp, a count, a share card, and the option to add the businesses you bounced to the public Wall of Shame. Only the ones that were promotional to you are preselected, and you can tick "add automatically after every run".
 
 ## How it finds promotional senders
@@ -48,7 +49,7 @@ Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content
 
 Business detection itself uses the contact flags WhatsApp exposes, business markers on the messages, and whether the sender is in your address book.
 
-The word lists live in `src/keywords.js`: promotional phrases, transactional phrases, and the opt-out button labels Bouncer will tap, strongest first. They're plain lists, tuned for India today. If spam where you live says something else, edit the file and open a pull request.
+The word lists live in `src/keywords.js`: promotional phrases, transactional phrases, and the opt-out button labels Dear Customer will tap, strongest first. They're plain lists, tuned for India today. If spam where you live says something else, edit the file and open a pull request.
 
 ## What each action does
 
@@ -63,21 +64,21 @@ The word lists live in `src/keywords.js`: promotional phrases, transactional phr
 
 ## Privacy
 
-Everything runs in your browser. Nothing about your chats leaves it unless you press **Add to the Wall of Shame**, and then only the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. Full policy: <https://bouncer.kanishkdan.com/privacy>.
+Everything runs in your browser. Nothing about your chats leaves it unless you press **Add to the Wall of Shame**, and then only the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. Full policy: <https://dearcustomer.kanishkdan.com/privacy>.
 
 ## Is this safe for my number?
 
-WhatsApp bans accounts for sending, not for receiving. Its anti-spam system scores outbound messages, especially many of them to people who never wrote to you, and it bans unofficial clients it can fingerprint. Bouncer is neither of those things: it runs inside the official WhatsApp Web client and calls the same functions the buttons call, so the server sees an ordinary linked device. Opting out, reporting, blocking, archiving and deleting are all things you could do by hand and none of them send a message.
+WhatsApp bans accounts for sending, not for receiving. Its anti-spam system scores outbound messages, especially many of them to people who never wrote to you, and it bans unofficial clients it can fingerprint. Dear Customer is neither of those things: it runs inside the official WhatsApp Web client and calls the same functions the buttons call, so the server sees an ordinary linked device. Opting out, reporting, blocking, archiving and deleting are all things you could do by hand and none of them send a message.
 
-The one action that does send a message is STOP, and it is the only real exposure. Bouncer keeps it small: one STOP per business, only to a number that messaged you in the last 30 days and only as a reply inside that existing conversation, at most 20 per run and 40 per day, spaced several seconds apart. Replying once to a business that wrote to you first is about as far from a spam pattern as a message can be. If that still worries you, untick Opt out on the setup screen and Bouncer sends nothing at all.
+The one action that does send a message is STOP, and it is the only real exposure. Dear Customer keeps it small: one STOP per business, only to a number that messaged you in the last 30 days and only as a reply inside that existing conversation, at most 20 per run and 40 per day, spaced several seconds apart. Replying once to a business that wrote to you first is about as far from a spam pattern as a message can be. If that still worries you, untick Opt out on the setup screen and Dear Customer sends nothing at all.
 
 What would raise the risk: modifying the code to send more, faster, or to numbers that never messaged you. Don't.
 
 ## Honest limits
 
 - Your phone still buzzes once per new number. Phone and browser receive a message at the same instant.
-- Automation is against WhatsApp's terms. In practice bans target bulk senders and unofficial clients, and Bouncer is neither, but the risk is not zero. See "Is this safe for my number?" above.
-- WhatsApp Web ships updates often. Bouncer talks to WhatsApp Web through [wa-js](https://github.com/wppconnect-team/wa-js), bundled unmodified. When WhatsApp changes internals it can break until wa-js is updated; drop a newer `dist/wppconnect-wa.js` into `vendor/` and reload the extension.
+- Automation is against WhatsApp's terms. In practice bans target bulk senders and unofficial clients, and Dear Customer is neither, but the risk is not zero. See "Is this safe for my number?" above.
+- WhatsApp Web ships updates often. Dear Customer talks to WhatsApp Web through [wa-js](https://github.com/wppconnect-team/wa-js), bundled unmodified. When WhatsApp changes internals it can break until wa-js is updated; drop a newer `dist/wppconnect-wa.js` into `vendor/` and reload the extension.
 - wa-js is injected only after your chat list is on screen, never on the QR page, because injecting early makes it cache WhatsApp's lazily loaded modules as missing.
 
 ## Layout
@@ -103,7 +104,7 @@ A business is only named on the public Wall once **three different people** have
 
 ## Debug
 
-Open DevTools on the WhatsApp Web tab. `window.__bouncer.state` is the live state. Every action during a run logs a `[Bouncer]` line with its outcome and timing. If something you know is spam isn't listed, press **Copy diagnostics** on the empty state and open an issue with it; it contains business names and masked numbers only.
+Open DevTools on the WhatsApp Web tab. `window.__bouncer.state` is the live state. Every action during a run logs a `[Dear Customer]` line with its outcome and timing. If something you know is spam isn't listed, press **Copy diagnostics** on the empty state and open an issue with it; it contains business names and masked numbers only.
 
 ## Licence
 

@@ -1,8 +1,8 @@
-Bouncer bundles wa-js (https://github.com/wppconnect-team/wa-js), copyright the
+Dear Customer bundles wa-js (https://github.com/wppconnect-team/wa-js), copyright the
 WPPConnect team, licensed under the Apache License, Version 2.0. The full licence
 is in vendor/LICENSE.wa-js and the bundle's third-party notices are in
 vendor/wppconnect-wa.js.LICENSE.txt. wa-js is included unmodified as
 vendor/wppconnect-wa.js (version 4.6.0).
 
-Bouncer is not affiliated with WhatsApp or Meta. WhatsApp is a trademark of
+Dear Customer is not affiliated with WhatsApp or Meta. WhatsApp is a trademark of
 WhatsApp LLC.

@@ -1,4 +1,4 @@
-// Bouncer — isolated-world bridge. The engine runs in the page's MAIN world so it
+// Dear Customer — isolated-world bridge. The engine runs in the page's MAIN world so it
 // can reach wa-js, but only this script can touch chrome.* APIs. They talk over
 // window.postMessage with a __bouncer marker.
 (() => {

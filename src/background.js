@@ -1,7 +1,7 @@
-// Bouncer — service worker. Only two jobs: open the panel when the toolbar icon
+// Dear Customer — service worker. Only two jobs: open the panel when the toolbar icon
 // is clicked, and paint the badge count the page reports.
 const WA = 'https://web.whatsapp.com/';
-const LIST_URL = 'https://bouncer.kanishkdan.com';
+const LIST_URL = 'https://dearcustomer.kanishkdan.com';
 const LIST_TTL_MS = 6 * 60 * 60 * 1000;
 
 // Random id per browser so the public list can count people without knowing who they are.
