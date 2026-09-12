@@ -40,6 +40,7 @@
     reportSel: {},             // group key -> bool, for "add to the public list"
     reportStatus: null,        // null | 'sending' | { ok, totals } | { error }
     cancel: false,             // set by the Stop button during a run
+    notice: null,              // transient one-line message under the toolbar
     activeId: null,            // number currently being bounced
     armed: false,              // second-click confirm when the selection includes non-promotional rows
     inject: 'idle',           // 'idle' | 'requested' | 'done' | 'failed'
@@ -927,8 +928,7 @@
   // ------------------------------------------------------------------ styles
   // The door list. A ledger, not a dashboard: hairlines instead of cards, one red
   // used as ink for the tally and the stamp, condensed numerals like a door counter.
-  // The sheet docks over WhatsApp's chat list, so a clicked row opens its
-  // conversation in full view to the right.
+  // The sheet sits on the right; a clicked row opens its conversation beside it.
   const DISPLAY = '"Avenir Next Condensed", "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif';
   const CSS = `
   #bouncer-root { all: initial; font-family: ${FONT}; font-size: 13px; line-height: 1.45; color: #e9edef; position: fixed; z-index: 2147483000; -webkit-font-smoothing: antialiased;
@@ -948,8 +948,8 @@
   #bouncer-root .bz-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); flex: none; }
   #bouncer-root .bz-count { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 
-  /* sheet, docked over the chat list */
-  #bouncer-root .bz-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-right: 1px solid var(--line); box-shadow: 24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(-100% - 30px)); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
+  /* sheet */
+  #bouncer-root .bz-panel { position: fixed; top: 0; right: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-left: 1px solid var(--line); box-shadow: -24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(100% + 30px)); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
   #bouncer-root .bz-panel.open { transform: none; }
   #bouncer-root .bz-head { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
   #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 14px; }
@@ -983,7 +983,7 @@
 
   /* ledger */
   #bouncer-root .bz-ledger { border-top: 1px solid var(--line); }
-  #bouncer-root .bz-row { display: grid; grid-template-columns: 16px 24px minmax(0, 1fr) auto; gap: 3px 12px; align-items: start; padding: 12px 18px 12px 17px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; transition: background .12s; }
+  #bouncer-root .bz-row { display: grid; grid-template-columns: 16px 24px minmax(0, 1fr) auto; gap: 3px 12px; align-items: start; padding: 12px 18px 12px 17px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; transition: background .12s; cursor: pointer; }
   #bouncer-root .bz-row:hover { background: #151f26; }
   #bouncer-root .bz-row.on { border-left-color: var(--ink); background: var(--ink-soft); }
   #bouncer-root .bz-row.on:hover { background: rgba(224,51,43,.14); }
@@ -997,7 +997,8 @@
   #bouncer-root .bz-main { min-width: 0; }
   #bouncer-root .bz-row1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   #bouncer-root .bz-name { font-weight: 600; font-size: 14px; color: var(--paper); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #bouncer-root .bz-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+  #bouncer-root .bz-row:hover .bz-name { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--muted); }
+  #bouncer-root .bz-notice { margin: 0 20px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; color: var(--paper); font-size: 12px; }
   #bouncer-root .bz-lab { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 10.5px; color: var(--muted); white-space: nowrap; flex: none; }
   #bouncer-root .bz-lab.hot { color: var(--ink); }
   #bouncer-root .bz-lab.warn { color: #f5a623; }
@@ -1121,38 +1122,35 @@
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closePanel(); });
-    window.addEventListener('resize', () => { if (state.open) dockPanel(); });
     render();
   }
 
-  // Size and place the sheet over WhatsApp's chat list column so the conversation
-  // pane to the right stays visible.
-  function dockPanel() {
-    let left = 0, width = 420;
-    try {
-      const pane = document.getElementById('pane-side');
-      if (pane) {
-        const r = pane.getBoundingClientRect();
-        if (r.width > 240) { left = Math.max(0, Math.round(r.left)); width = Math.round(Math.min(Math.max(r.width, 380), 480)); }
-      }
-    } catch (_) {}
-    panel.style.left = left + 'px';
-    panel.style.width = width + 'px';
-  }
-
-  function openPanel() { dockPanel(); state.open = true; render(); if (!state.scanned && !state.scanning) scan(); }
+  function openPanel() { state.open = true; render(); if (!state.scanned && !state.scanning) scan(); }
   function closePanel() { state.open = false; state.armed = false; render(); }
   const findGroup = (key) => state.groups.find((g) => g.key === key);
 
-  // Open the conversation, scrolled to the last message they sent.
+  // Open the conversation, scrolled to the last message they sent. Three ways in,
+  // because WhatsApp Web's own navigation functions come and go between builds.
+  let noticeTimer = null;
+  function notice(text) {
+    state.notice = text; render();
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => { state.notice = null; render(); }, 3500);
+  }
   async function openChat(key) {
     const g = findGroup(key); if (!g) return;
     const n = g.active[0] || g.numbers[0]; if (!n) return;
     const W = window.WPP;
-    try {
-      if (n.lastMsgId && W.chat.openChatAt) { await W.chat.openChatAt(n.id, n.lastMsgId); return; }
-    } catch (e) { log('openChatAt failed, opening bottom', String((e && e.message) || e)); }
-    try { if (W.chat.openChatBottom) await W.chat.openChatBottom(n.id); } catch (e) { log('open chat failed', String((e && e.message) || e)); }
+    const attempts = [
+      ['openChatAt', () => n.lastMsgId && W.chat.openChatAt ? W.chat.openChatAt(n.id, n.lastMsgId) : Promise.reject(new Error('no message id'))],
+      ['openChatBottom', () => W.chat.openChatBottom ? W.chat.openChatBottom(n.id) : Promise.reject(new Error('unavailable'))],
+      ['openChatFromUnread', () => W.chat.openChatFromUnread ? W.chat.openChatFromUnread(n.id) : Promise.reject(new Error('unavailable'))],
+    ];
+    for (const [name, fn] of attempts) {
+      try { await withTimeout(Promise.resolve().then(fn), 5000, name); log('opened chat via', name, n.id); return; }
+      catch (e) { log(name, 'failed', n.id, String((e && e.message) || e)); }
+    }
+    notice(`Couldn't open ${g.name}'s chat. It may already be deleted.`);
   }
 
   function onClick(e) {
@@ -1170,6 +1168,7 @@
       run();
     }
     else if (act === 'cancel') { state.cancel = true; render(); }
+    else if (act === 'noop') { /* checkbox: handled by onChange */ }
     else if (act === 'open') openChat(t.dataset.key);
     else if (act === 'opts') { state.showOpts = !state.showOpts; render(); }
     else if (act === 'filter') { state.filter = t.dataset.v === 'all' ? 'all' : 'promo'; state.armed = false; render(); }
@@ -1271,6 +1270,7 @@
         ${tabs}
       </div>
       <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button><span class="sp"></span><button data-act="scan">Rescan</button></div>
+      ${state.notice ? `<div class="bz-notice" style="margin-top:12px">${esc(state.notice)}</div>` : ''}
       ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Ticked rows are promotional senders. Click a name to open the conversation and check before you bounce.</div>` : ''}
       <div class="bz-ledger">${biz.map((g, i) => renderRow(g, i + 1)).join('')}</div>
       ${promoOnly && hiddenN ? `<div class="bz-tip">${hiddenN} more ${bizWord(hiddenN)} messaged you without looking promotional. <button class="bz-link" data-act="filter" data-v="all">Show all</button></div>` : ''}
@@ -1299,11 +1299,11 @@
       single ? esc(fmtPhone(last.phone)) : (!locked ? `<button data-act="expand" data-key="${esc(g.key)}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : plural(g.numbers.length, 'number')),
     ].join(' · ');
     return `
-      <div class="bz-row ${g.checked ? 'on' : ''} ${g.done ? 'done' : ''} ${isActive ? 'active' : ''}">
-        <input type="checkbox" class="bz-check" data-key="${esc(g.key)}" ${g.checked ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select ${esc(g.name)}">
+      <div class="bz-row ${g.checked ? 'on' : ''} ${g.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-act="open" data-key="${esc(g.key)}" title="Open the conversation at their last message">
+        <input type="checkbox" class="bz-check" data-act="noop" data-key="${esc(g.key)}" ${g.checked ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select ${esc(g.name)}">
         <span class="bz-rank">${rank ? String(rank).padStart(2, '0') : ''}</span>
         <div class="bz-main">
-          <div class="bz-row1"><button class="bz-name" data-act="open" data-key="${esc(g.key)}" title="Open the conversation at their last message">${esc(g.name)}</button>${labels}</div>
+          <div class="bz-row1"><span class="bz-name">${esc(g.name)}</span>${labels}</div>
           ${g.preview ? `<div class="bz-msg ${g.previewSys ? 'sys' : ''}">${esc(g.preview)}</div>` : ''}
           <div class="bz-meta">${meta}</div>
         </div>
@@ -1402,6 +1402,7 @@
       <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Names and hashed numbers only · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
       ${state.showRep ? renderRepList(bounced) : ''}
       ${!A.optout || s.optoutDead ? `<div class="bz-tip">To make it stick, open their chat on your phone and tap <b>Stop</b> on a marketing message.</div>` : ''}
+      ${state.notice ? `<div class="bz-notice" style="margin-top:14px">${esc(state.notice)}</div>` : ''}
       <div class="bz-ledger" style="margin-top:18px">${bounced.map((g, i) => renderRow(g, i + 1)).join('')}</div>`;
   }
 
