@@ -830,7 +830,7 @@
     saveHistory();
     state.reportSel = {};
     state.reportStatus = null;
-    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && (g.isApi || !!g.known);
+    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && (g.isApi || !!g.known) && g.numbers.some((n) => n.result && !n.result.cancelled);
     log('run done', sum);
     state.results = sum;
     state.running = false;
