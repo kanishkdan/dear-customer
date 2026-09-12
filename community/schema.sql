@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   count      INTEGER NOT NULL DEFAULT 1,
+  category   TEXT,            -- what the business was to the reporter: promo | guess | txn | api | smb
   PRIMARY KEY (install_id, name_key)
 );
 CREATE INDEX IF NOT EXISTS idx_reports_key ON reports(name_key);

@@ -26,7 +26,7 @@ Bouncer runs inside WhatsApp Web. Open it and it lists every business that has b
 
 Businesses that only send order updates, OTPs and alerts are kept out of the way under All, so your bank and your grocer stay untouched. Click any name to open the chat and check before you act.
 
-Optionally add the businesses you bounced to the public Wall of Shame at bouncer.kanishkdan.com, where they're ranked by how many people bounced them and how many numbers they burned. Names and hashed numbers only, never your data.
+Optionally add the businesses that spammed you to the public Wall of Shame at bouncer.kanishkdan.com, ranked by how many people bounced them for promotions and how many numbers they burned. Names and hashed numbers only, never your data, and the list never decides for you: what gets ticked depends on what a business sends you.
 
 Everything runs in your browser. Nothing about your chats leaves it unless you choose to add a business to the list.
 

@@ -41,6 +41,7 @@
     reportStatus: null,        // null | 'sending' | { ok, totals } | { error }
     cancel: false,             // set by the Stop button during a run
     notice: null,              // transient one-line message under the toolbar
+    view: 'list',              // 'list' | 'chart'
     activeId: null,            // number currently being bounced
     armed: false,              // second-click confirm when the selection includes non-promotional rows
     inject: 'idle',           // 'idle' | 'requested' | 'done' | 'failed'
@@ -57,7 +58,7 @@
     if (type === 'history') {
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [], autoReport: !!payload.autoReport };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, autoReport: !!payload.autoReport };
       }
       render();
     } else if (type === 'open') {
@@ -507,14 +508,18 @@
         const pv = previewOf(lastInbound);
         // promo: WhatsApp-tagged marketing, or the contact carries the marketing-thread flag.
         // guess: no tag but the text reads like an ad. txn: utility/auth only. api: tagged nothing.
+        // The public list never overrides what a business sends *you*: a sender whose
+        // messages to you are alerts stays an alert sender however many people bounced
+        // it. It only breaks a tie when your own messages carry no signal at all.
+        const wallPromo = known && (known.promo_people != null ? known.promo_people : known.people) >= 3;
         const category = (cats.marketing || f.marketingThread) ? 'promo'
           : cats['promo-guess'] ? 'guess'
           : (cats.utility || cats.auth) ? 'txn'
-          : isApi ? 'api' : isBiz ? 'smb' : 'unknown';
+          : isApi ? (wallPromo ? 'guess' : 'api') : isBiz ? 'smb' : 'unknown';
         rows.push({
           id, phone, hash, name, kind: isBiz ? 'biz' : 'unknown', isApi, verified: !!f.verifiedName, category,
           optedOut: !!f.optedOut,
-          known: known ? { name: known.name, people: known.people, numbers: known.numbers } : null,
+          known: known ? { name: known.name, people: known.promo_people != null ? known.promo_people : known.people, numbers: known.numbers } : null,
           ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow, lastMsgId,
           msgs: inbound.length, preview: pv.text, previewSys: pv.sys,
         });
@@ -557,7 +562,7 @@
       const order = ['promo', 'guess', 'txn', 'api', 'smb', 'unknown'];
       g.category = g.numbers.map((n) => n.category).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0] || 'unknown';
       g.optedOut = g.numbers.some((n) => n.optedOut);
-      g.promo = g.category === 'promo' || g.category === 'guess' || !!g.known;
+      g.promo = g.category === 'promo' || g.category === 'guess';
       g.checked = g.kind === 'biz' && g.active.length > 0 && g.promo;
       g.expanded = false;
       return g;
@@ -825,13 +830,20 @@
       .sort((a, b) => b.seen - a.seen)
       .slice(0, 5);
     state.history.runs.push({
-      ts: sum.ts, businesses: sum.businesses, numbers: sum.numbers,
+      ts: sum.ts, businesses: sum.businessesDone, numbers: sum.numbers - (sum.cancelled || 0),
       optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, del: sum.del,
     });
+    const bd = state.history.bounced || (state.history.bounced = {});
+    for (const g of targets) {
+      const doneNums = g.numbers.filter((n) => n.result && !n.result.cancelled);
+      if (!doneNums.length || g.kind !== 'biz') continue;
+      const e = bd[g.key] || (bd[g.key] = { name: g.name, numbers: 0, runs: 0, msgs: 0, first: sum.ts, last: sum.ts });
+      e.name = g.name; e.numbers = Math.max(e.numbers || 0, seenCount(g)); e.runs = (e.runs || 0) + 1; e.msgs = (e.msgs || 0) + g.msgs; e.last = sum.ts;
+    }
     saveHistory();
     state.reportSel = {};
     state.reportStatus = null;
-    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && g.category !== 'smb' && g.numbers.some((n) => n.result && !n.result.cancelled);
+    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && g.promo && g.numbers.some((n) => n.result && !n.result.cancelled);
     log('run done', sum);
     state.results = sum;
     state.running = false;
@@ -844,7 +856,7 @@
 
   function reportItems() {
     return state.groups.filter((g) => g.done && state.reportSel[g.key]).map((g) => ({
-      name: g.name, is_api: !!g.isApi, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
+      name: g.name, is_api: !!g.isApi, category: g.category, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
       numbers: g.numbers.map((n) => n.hash).filter(Boolean).slice(0, 20),
     }));
   }
@@ -1080,6 +1092,24 @@
   #bouncer-root .bz-scanline { height: 2px; background: var(--line); margin-top: 18px; max-width: 220px; }
   #bouncer-root .bz-scanline > i { display: block; height: 100%; background: var(--paper); transition: width .2s; }
 
+  /* chart */
+  #bouncer-root .bz-chart { padding: 6px 20px 18px; display: grid; gap: 6px; }
+  #bouncer-root .bz-bar-row { display: grid; grid-template-columns: 22px 118px minmax(0, 1fr) 30px; align-items: center; gap: 10px; position: relative; padding: 3px 0; }
+  #bouncer-root .bz-bar-rank { font-family: var(--display); font-weight: 600; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-bar-name { font-size: 13px; color: var(--paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bouncer-root .bz-bar-track { height: 10px; background: #182229; border-radius: 0 4px 4px 0; overflow: hidden; }
+  #bouncer-root .bz-bar-track i { display: block; height: 100%; background: var(--ink); border-radius: 0 4px 4px 0; transition: width .3s ease; }
+  #bouncer-root .bz-bar-row:hover .bz-bar-track i { background: #f0453d; }
+  #bouncer-root .bz-bar-val { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-tt { display: none; position: absolute; left: 150px; top: calc(100% + 2px); z-index: 2; background: #202c33; border: 1px solid var(--line); border-radius: 3px; padding: 6px 9px; font-size: 11px; color: var(--paper); white-space: nowrap; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  #bouncer-root .bz-bar-row:hover .bz-tt, #bouncer-root .bz-run:hover .bz-tt { display: block; }
+  #bouncer-root .bz-runs-head { padding: 10px 20px 8px; font-size: 10.5px; color: var(--muted); border-top: 1px solid var(--line); }
+  #bouncer-root .bz-runs { display: flex; align-items: flex-end; gap: 3px; height: 56px; padding: 0 20px 18px; }
+  #bouncer-root .bz-run { flex: 1; max-width: 28px; background: var(--ink); border-radius: 3px 3px 0 0; position: relative; opacity: .85; }
+  #bouncer-root .bz-run:hover { opacity: 1; }
+  #bouncer-root .bz-run .bz-tt { left: 0; top: auto; bottom: calc(100% + 4px); }
+  #bouncer-root .bz-warn { color: var(--muted); }
+
   /* results */
   #bouncer-root .bz-done { padding: 26px 20px 8px; }
   #bouncer-root .bz-stamp { display: inline-block; padding: 5px 12px 4px; border: 3px solid var(--ink); border-radius: 4px; color: var(--ink); font-family: var(--display); text-transform: uppercase; letter-spacing: .22em; font-weight: 700; font-size: 26px; line-height: 1; transform: rotate(-7deg); transform-origin: 30% 60%; animation: bz-slam .32s cubic-bezier(.2,.9,.2,1.2) both; margin: 0 0 14px 4px; }
@@ -1144,7 +1174,7 @@
   }
 
   function openPanel() { state.open = true; render(); if (!state.scanned && !state.scanning) scan(); }
-  function closePanel() { state.open = false; state.armed = false; render(); }
+  function closePanel() { state.open = false; state.armed = false; state.view = 'list'; render(); }
   const findGroup = (key) => state.groups.find((g) => g.key === key);
 
   // Open the conversation, scrolled to the last message they sent. Three ways in,
@@ -1186,6 +1216,9 @@
       run();
     }
     else if (act === 'cancel') { state.cancel = true; render(); }
+    else if (act === 'chart') { state.view = 'chart'; render(); }
+    else if (act === 'chart-close') { state.view = 'list'; render(); }
+    else if (act === 'chart-card') downloadChartCard();
     else if (act === 'noop') { /* checkbox: handled by onChange */ }
     else if (act === 'open') openChat(t.dataset.key);
     else if (act === 'opts') { state.showOpts = !state.showOpts; render(); }
@@ -1225,12 +1258,15 @@
     const bodyEl = panel.querySelector('.bz-body');
     const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
     const wall = state.community && state.community.url;
+    const chart = state.view === 'chart';
     panel.innerHTML = `
       <div class="bz-head"><span class="bz-mark"></span><span class="bz-word">Bouncer</span>
-        ${wall ? `<a class="bz-wall caps" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : '<span style="margin-left:auto"></span>'}
+        <span style="margin-left:auto"></span>
+        <button class="bz-wall caps" data-act="${chart ? 'chart-close' : 'chart'}">${chart ? '← Back' : 'Bounced'}</button>
+        ${wall && !chart ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
         <button class="bz-x" data-act="close" aria-label="Close">×</button></div>
-      <div class="bz-body">${state.results ? renderDone() : renderList()}</div>
-      ${renderFoot()}`;
+      <div class="bz-body">${chart ? renderChart() : state.results ? renderDone() : renderList()}</div>
+      ${chart ? renderChartFoot() : renderFoot()}`;
     const nb = panel.querySelector('.bz-body');
     if (nb && scrollTop) nb.scrollTop = scrollTop;
     if (state.running) { const el = panel.querySelector('.bz-row.active'); if (el) el.scrollIntoView({ block: 'nearest' }); }
@@ -1283,7 +1319,7 @@
       </div>
       <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button><span class="sp"></span><button data-act="scan">Rescan</button></div>
       ${state.notice ? `<div class="bz-notice" style="margin-top:12px">${esc(state.notice)}</div>` : ''}
-      ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Ticked rows are promotional senders. Click a name to open the conversation and check before you bounce.</div>` : ''}
+      ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Ticked rows are promotional senders. Click a row to open the conversation and check first. Deleted chats can't be recovered.</div>` : ''}
       <div class="bz-ledger">${biz.map((g, i) => renderRow(g, i + 1)).join('')}</div>
       ${promoOnly && hiddenN ? `<div class="bz-tip">${hiddenN} more ${bizWord(hiddenN)} messaged you without looking promotional. <button class="bz-link" data-act="filter" data-v="all">Show all</button></div>` : ''}
       ${renderUnknown(unknown)}`;
@@ -1371,12 +1407,12 @@
     if (state.armed) label = `Sure? Bounce ${targets.length === 1 ? clip(targets[0].name, 18) : `${targets.length} businesses`}`;
     const chip = (key, l) => `<button class="bz-chip ${A[key] ? 'on' : ''}" data-act="chip" data-key="${key}"><span class="dot"></span>${l}</button>`;
     const hint = state.armed
-      ? `${risky.length === 1 ? `<b>${esc(risky[0].name)}</b> doesn't` : `${risky.length} of these don't`} look promotional. Click again to bounce anyway.`
-      : `${esc(what)} · <button data-act="opts">${state.showOpts ? 'Hide' : 'Change'}</button>`;
+      ? `${risky.length === 1 ? `<b>${esc(risky[0].name)}</b> doesn't` : `${risky.length} of these don't`} look promotional. Click again to bounce anyway.${A.del ? ' Deleted chats can\'t be recovered.' : ''}`
+      : `${esc(what)} · <button data-act="opts">${state.showOpts ? 'Hide' : 'Change'}</button>${A.del || A.report ? `<br><span class="bz-warn">${A.del ? 'Deleted chats can\'t be recovered' : ''}${A.del && A.report ? ', and ' : ''}${A.report ? 'reports can\'t be withdrawn' : ''}. Blocks can be undone afterwards.</span>` : ''}`;
     return `<div class="bz-foot">
       <button class="bz-btn ${state.armed ? 'armed' : ''}" data-act="run" ${targets.length && parts.length ? '' : 'disabled'}>${esc(label)}${n > targets.length && !state.armed ? `<span class="n">${plural(n, 'number')}</span>` : ''}</button>
       <div class="bz-hint">${hint}</div>
-      ${state.showOpts && !state.armed ? `<div class="bz-opts">${chip('optout', 'Stop marketing')}${chip('stop', 'Send STOP')}${chip('report', 'Report')}${chip('block', 'Block')}${chip('del', 'Delete chat')}</div><div class="bz-hint" style="margin-top:8px">Stop marketing is WhatsApp's own opt-out. It applies to the whole business, not one number.</div>` : ''}
+      ${state.showOpts && !state.armed ? `<div class="bz-opts">${chip('optout', 'Stop marketing')}${chip('stop', 'Send STOP')}${chip('report', 'Report')}${chip('block', 'Block')}${chip('del', 'Delete chat')}</div><div class="bz-hint" style="margin-top:8px">Stop marketing is WhatsApp's own opt-out for the whole business. Delete removes the chat on all your devices, for good.</div>` : ''}
     </div>`;
   }
 
@@ -1411,7 +1447,8 @@
           : `<button class="bz-btn paper" data-act="report" ${selN && rs !== 'sending' ? '' : 'disabled'}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button>`}
         <button class="bz-btn ghost" data-act="card">Save share card</button>
       </div>
-      <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Names and hashed numbers only · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
+      <div class="bz-hint"><button data-act="chart">See everything you've bounced</button></div>
+      <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Promotional senders only, names and hashed numbers · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
       <div class="bz-hint" style="margin-top:6px"><label class="bz-auto"><input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}> Add to the Wall automatically after every run</label></div>
       ${state.showRep ? renderRepList(bounced) : ''}
       ${!A.optout || s.optoutDead ? `<div class="bz-tip">To make it stick, open their chat on your phone and tap <b>Stop</b> on a marketing message.</div>` : ''}
@@ -1419,9 +1456,88 @@
       <div class="bz-ledger" style="margin-top:18px">${bounced.map((g, i) => renderRow(g, i + 1)).join('')}</div>`;
   }
 
+  function bouncedRows() {
+    return Object.entries(state.history.bounced || {})
+      .map(([key, e]) => ({ key, name: e.name || key, numbers: e.numbers || 0, runs: e.runs || 0, msgs: e.msgs || 0, last: e.last || 0 }))
+      .sort((a, b) => (b.numbers - a.numbers) || (b.last - a.last));
+  }
+
+  // One series, so the bars carry the ink and the text stays in text tokens.
+  function renderChart() {
+    const rows = bouncedRows();
+    const runs = (state.history.runs || []).slice(-24);
+    if (!rows.length) return `<div class="bz-empty"><div class="h">Nothing bounced yet</div>Run a bounce and every business you throw out shows up here, ranked by the numbers it burned.</div>`;
+    const totalNumbers = rows.reduce((n, r) => n + r.numbers, 0);
+    const max = Math.max(1, ...rows.map((r) => r.numbers));
+    const shown = rows.slice(0, 25);
+    const runMax = Math.max(1, ...runs.map((r) => r.numbers || 0));
+    return `
+      <div class="bz-hero"><div class="bz-hero-row"><div class="bz-big ink">${rows.length}</div>
+        <div class="bz-lead">${bizWord(rows.length)} bounced so far, <b>${totalNumbers}</b> ${totalNumbers === 1 ? 'number' : 'numbers'} between them, over ${plural(runs.length, 'run')}.<br><span class="m">Numbers burned per business.</span></div></div></div>
+      <div class="bz-chart">
+        ${shown.map((r, i) => `
+          <div class="bz-bar-row">
+            <span class="bz-bar-rank">${String(i + 1).padStart(2, '0')}</span>
+            <span class="bz-bar-name">${esc(r.name)}</span>
+            <span class="bz-bar-track"><i style="width:${Math.max(2, Math.round((r.numbers / max) * 100))}%"></i></span>
+            <span class="bz-bar-val">${r.numbers}</span>
+            <span class="bz-tt">${esc(r.name)} · ${plural(r.numbers, 'number')} · ${plural(r.msgs, 'message')} · bounced ${r.runs === 1 ? 'once' : `${r.runs} times`} · last ${esc(fmtAgo(r.last))}</span>
+          </div>`).join('')}
+        ${rows.length > shown.length ? `<div class="bz-tip" style="padding-left:0">and ${rows.length - shown.length} more</div>` : ''}
+      </div>
+      ${runs.length > 1 ? `
+      <div class="bz-runs-head caps">Numbers per run</div>
+      <div class="bz-runs">${runs.map((r) => `<span class="bz-run" style="height:${Math.max(6, Math.round(((r.numbers || 0) / runMax) * 100))}%"><span class="bz-tt">${new Date((r.ts || 0) * 1000).toLocaleDateString()} · ${plural(r.numbers || 0, 'number')} · ${plural(r.businesses || 0, 'business').replace('businesss', 'businesses')}</span></span>`).join('')}</div>` : ''}`;
+  }
+
+  function renderChartFoot() {
+    if (!bouncedRows().length) return '';
+    return `<div class="bz-foot"><button class="bz-btn paper" data-act="chart-card">Save chart</button><div class="bz-hint">A 1200px image of this list, for sharing.</div></div>`;
+  }
+
+  function drawChartCard(rows) {
+    const shown = rows.slice(0, 12);
+    const W = 1200, rowH = 44, top = 250, H = top + shown.length * rowH + 90;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    x.fillStyle = '#111b21'; x.fillRect(0, 0, W, H);
+    x.save(); x.translate(88, 86); x.rotate(-7 * Math.PI / 180);
+    x.font = `700 40px ${CARD_DISPLAY}`; x.textBaseline = 'middle';
+    const label = 'B O U N C E D'; const lw = x.measureText(label).width + 40;
+    x.lineWidth = 6; x.strokeStyle = '#e0332b'; x.strokeRect(0, -31, lw, 62);
+    x.fillStyle = '#e0332b'; x.fillText(label, 20, 2); x.restore();
+    x.textBaseline = 'alphabetic';
+    const totalNumbers = rows.reduce((n, r) => n + r.numbers, 0);
+    x.fillStyle = '#e9edef'; x.font = `700 96px ${CARD_DISPLAY}`; x.fillText(String(rows.length), 84, 205);
+    x.font = `500 30px ${FONT}`; x.fillText(`businesses bounced · ${totalNumbers} numbers burned on me`, 84 + x.measureText('').width + (String(rows.length).length * 52) + 24, 200);
+    const max = Math.max(1, ...shown.map((r) => r.numbers));
+    const nameX = 84, barX = 420, barW = 620, valX = 1112;
+    shown.forEach((r, i) => {
+      const y = top + i * rowH;
+      x.fillStyle = '#8696a0'; x.font = `600 18px ${CARD_DISPLAY}`; x.textAlign = 'left'; x.fillText(String(i + 1).padStart(2, '0'), nameX, y + 20);
+      x.fillStyle = '#e9edef'; x.font = `600 22px ${FONT}`; x.fillText(clip(r.name, 26), nameX + 40, y + 21);
+      x.fillStyle = '#182229'; x.fillRect(barX, y + 6, barW, 16);
+      const w = Math.max(4, Math.round((r.numbers / max) * barW));
+      x.fillStyle = '#e0332b'; x.beginPath(); x.roundRect(barX, y + 6, w, 16, [0, 4, 4, 0]); x.fill();
+      x.fillStyle = '#8696a0'; x.font = `700 22px ${CARD_DISPLAY}`; x.textAlign = 'right'; x.fillText(String(r.numbers), valX, y + 22); x.textAlign = 'left';
+    });
+    x.fillStyle = '#2a3942'; x.fillRect(84, H - 56, 1028, 1);
+    x.fillStyle = '#8696a0'; x.font = `600 14px ${CARD_DISPLAY}`; x.textAlign = 'right';
+    x.fillText('B O U N C E R   ·   B O U N C E R . K A N I S H K D A N . C O M', 1112, H - 28); x.textAlign = 'left';
+    return c;
+  }
+  function downloadChartCard() {
+    const rows = bouncedRows(); if (!rows.length) return;
+    const c = drawChartCard(rows);
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = `bouncer-bounced-${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
   function renderRepList(bounced) {
     return `<div class="bz-note">${bounced.map((g) => `
-      <label class="bz-rep"><input type="checkbox" class="bz-check bz-rep-check" data-key="${esc(g.key)}" ${state.reportSel[g.key] ? 'checked' : ''}><span>${esc(g.name)}</span><span class="m">${plural(g.numbers.length, 'number')}${g.known ? ` · listed by ${g.known.people}` : ''}</span></label>`).join('')}</div>`;
+      <label class="bz-rep"><input type="checkbox" class="bz-check bz-rep-check" data-key="${esc(g.key)}" ${state.reportSel[g.key] ? 'checked' : ''}><span>${esc(g.name)}</span><span class="m">${g.promo ? 'promotional' : (CAT_LABEL[g.category] || [''])[0].toLowerCase() || 'business'}${g.known ? ` · on the Wall` : ''}</span></label>`).join('')}</div>`;
   }
 
   // ------------------------------------------------------------------ boot

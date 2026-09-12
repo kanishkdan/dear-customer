@@ -19,14 +19,14 @@ Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content
 
 - Bouncer reads your chats and opens on **Promotional**: every business that sent you marketing in the period you pick (this week by default). Each row shows the message count, the last message, and in red how many different numbers that business has ever used on you. Rows are ranked by that count.
 - Promotional rows are ticked. Click a name to open the chat and check. Switch to **All** to see senders that only sent order updates, alerts or codes, small businesses on the WhatsApp Business app, and unknown numbers not in your contacts.
-- Press **Bounce**. Under the button, **Change** reveals the five actions. Progress shows per number. When it finishes you get a stamp, a count, a share card, and the option to add the businesses you bounced to the public Wall of Shame.
+- Press **Bounce**. Under the button, **Change** reveals the five actions. Progress shows per number, and a Stop button ends the run early. When it finishes you get a stamp, a count, a share card, and the option to add the businesses you bounced to the public Wall of Shame. Only the ones that were promotional to you are preselected, and you can tick "add automatically after every run".
 
 ## How it finds promotional senders
 
 1. WhatsApp's own tag. Every template message carries the category the business declared to Meta: marketing, utility or authentication. Marketing is promotional, authentication is not.
 2. Words. A utility tag does not win on its own, because businesses in India register ad templates as utility to dodge marketing pricing. Loan, pre-approved, offer, cashback, EMI, apply now and friends outrank a utility tag. OTP, delivered, debited, invoice and friends mark an alert.
 3. Buttons. A template with a call-to-action button and no transactional words is promotional. OTPs don't come with "Apply now".
-4. The public list. Anything others have already reported is flagged and ticked, matched by name or by a hash of the number.
+4. The public list, as a tie-break only. A business many people bounced for promotions, whose messages to you carry no signal either way, is treated as promotional. A business whose messages to you are alerts stays an alert sender however many people bounced it. The list never ticks a business for you.
 
 Business detection itself uses the contact flags WhatsApp exposes, business markers on the messages, and whether the sender is in your address book.
 

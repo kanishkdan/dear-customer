@@ -98,14 +98,15 @@ async function report(request, env, ctx) {
   const now = Math.floor(Date.now() / 1000);
   const stmts = [];
   const insReport = env.DB.prepare(`
-    INSERT INTO reports (install_id, name_key, name, is_api, cc, created_at, updated_at, count)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1)
+    INSERT INTO reports (install_id, name_key, name, is_api, cc, created_at, updated_at, count, category)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1, ?7)
     ON CONFLICT(install_id, name_key) DO UPDATE SET
       updated_at = excluded.updated_at,
       count = count + 1,
       name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE name END,
       is_api = MAX(is_api, excluded.is_api),
-      cc = COALESCE(excluded.cc, cc)`);
+      cc = COALESCE(excluded.cc, cc),
+      category = COALESCE(excluded.category, category)`);
   const insNumber = env.DB.prepare(`
     INSERT OR IGNORE INTO numbers (name_key, number_hash, install_id, created_at) VALUES (?1, ?2, ?3, ?4)`);
 
@@ -119,7 +120,8 @@ async function report(request, env, ctx) {
     if (key.length < 2 || !hasLetter) { rejected.push(name || '(empty)'); continue; }
     const isApi = raw.is_api ? 1 : 0;
     const cc = /^\d{1,3}$/.test(String(raw.cc || '')) ? String(raw.cc) : null;
-    stmts.push(insReport.bind(install, key, name, isApi, cc, now));
+    const category = ['promo', 'guess', 'txn', 'api', 'smb'].includes(raw.category) ? raw.category : null;
+    stmts.push(insReport.bind(install, key, name, isApi, cc, now, category));
     const hashes = Array.isArray(raw.numbers) ? raw.numbers.filter((h) => typeof h === 'string' && HASH_RE.test(h)).slice(0, MAX_HASHES) : [];
     for (const h of hashes) stmts.push(insNumber.bind(key, h.toLowerCase(), install, now));
     accepted++;
@@ -150,6 +152,7 @@ async function listData(env) {
       SELECT r.name_key AS key,
         (SELECT name FROM reports r2 WHERE r2.name_key = r.name_key GROUP BY name ORDER BY COUNT(*) DESC, MAX(updated_at) DESC LIMIT 1) AS name,
         COUNT(*) AS people,
+        SUM(CASE WHEN category IS NULL OR category IN ('promo', 'guess') THEN 1 ELSE 0 END) AS promo_people,
         SUM(count) AS reports,
         MAX(is_api) AS is_api,
         MIN(created_at) AS first_seen,
@@ -157,7 +160,7 @@ async function listData(env) {
         (SELECT COUNT(DISTINCT number_hash) FROM numbers n WHERE n.name_key = r.name_key) AS numbers
       FROM reports r
       GROUP BY r.name_key
-      ORDER BY people DESC, numbers DESC, reports DESC
+      ORDER BY promo_people DESC, people DESC, numbers DESC, reports DESC
       LIMIT 1000`).all(),
     totalsRow(env),
     env.DB.prepare(`SELECT DISTINCT number_hash, name_key FROM numbers LIMIT 20000`).all(),
@@ -168,7 +171,7 @@ async function listData(env) {
     updated: Math.floor(Date.now() / 1000),
     totals,
     businesses: (rows.results || []).map((r) => ({
-      key: r.key, name: r.name, people: r.people, reports: r.reports, is_api: !!r.is_api,
+      key: r.key, name: r.name, people: r.people, promo_people: r.promo_people || 0, reports: r.reports, is_api: !!r.is_api,
       numbers: r.numbers, first_seen: r.first_seen, last_seen: r.last_seen,
     })),
     hashes: hashMap,
@@ -252,7 +255,7 @@ async function page(env) {
       <tr>
         <td class="rank">${i + 1}</td>
         <td class="name">${esc(b.name)}${b.is_api ? ' <span class="tag">API</span>' : ''}</td>
-        <td class="num people">${b.people}</td>
+        <td class="num people">${b.promo_people}${b.people > b.promo_people ? ` <span class="muted">+${b.people - b.promo_people}</span>` : ''}</td>
         <td class="num burned">${b.numbers}</td>
         <td class="num muted">${esc(fmtAgo(b.last_seen))}</td>
       </tr>`).join('')
@@ -297,7 +300,7 @@ async function page(env) {
 </style></head>
 <body><div class="bar"></div><div class="wrap">
   <h1><span class="dot"></span>Wall of Shame</h1>
-  <p class="sub">Businesses that message people on WhatsApp who never asked. Ranked by how many people bounced them and how many different numbers they burned doing it. Reported anonymously by people running <a href="${esc(repo)}">Bouncer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
+  <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. A business here sent promotions to the people who bounced it; it may send alerts others want, and Bouncer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Bouncer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
   <div class="stats">
     <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Businesses</div></div>
     <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div></div>
@@ -305,7 +308,7 @@ async function page(env) {
     <div class="stat"><div class="n">${data.totals.reports}</div><div class="l">Reports</div></div>
   </div>
   <table>
-    <thead><tr><th>#</th><th>Business</th><th class="num">People</th><th class="num">Numbers burned</th><th class="num">Last seen</th></tr></thead>
+    <thead><tr><th>#</th><th>Business</th><th class="num">People bounced for promos</th><th class="num">Numbers burned</th><th class="num">Last seen</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   <div class="cta">
@@ -314,6 +317,7 @@ async function page(env) {
   </div>
   <footer>
     <p><b>What's stored.</b> The business name exactly as WhatsApp shows it, a SHA-256 hash of each number it used, whether it's an official Business Platform account, the country code, and a random id per browser so one person can't be counted twice. No phone numbers, no message content, no identity of the person reporting.</p>
+    <p><b>Counting.</b> The main count is people who bounced the business for promotional messages. A grey +N is people who bounced it for something else, such as alerts they didn't want. Only the promotional count ranks.</p>
     <p><b>Listed and think it's wrong?</b> <a href="${esc(repo)}/issues/new?title=Removal%20request">Open a removal request</a>. Entries come from users, not from us.</p>
     <p><a href="/privacy">Privacy</a> · <a href="${esc(repo)}">Source on GitHub</a> · <code>GET /list.json</code> is public if you want the data. Not affiliated with WhatsApp or Meta.</p>
   </footer>
