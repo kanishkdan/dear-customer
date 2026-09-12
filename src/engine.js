@@ -57,7 +57,7 @@
     if (type === 'history') {
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [] };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], autoReport: !!payload.autoReport };
       }
       render();
     } else if (type === 'open') {
@@ -831,7 +831,7 @@
     saveHistory();
     state.reportSel = {};
     state.reportStatus = null;
-    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && (g.isApi || !!g.known) && g.numbers.some((n) => n.result && !n.result.cancelled);
+    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && g.category !== 'smb' && g.numbers.some((n) => n.result && !n.result.cancelled);
     log('run done', sum);
     state.results = sum;
     state.running = false;
@@ -839,6 +839,20 @@
     state.activeId = null;
     state.cancel = false;
     render();
+    if (state.history.autoReport) submitReport();
+  }
+
+  function reportItems() {
+    return state.groups.filter((g) => g.done && state.reportSel[g.key]).map((g) => ({
+      name: g.name, is_api: !!g.isApi, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
+      numbers: g.numbers.map((n) => n.hash).filter(Boolean).slice(0, 20),
+    }));
+  }
+  function submitReport() {
+    const items = reportItems();
+    if (!items.length || state.reportStatus === 'sending' || (state.reportStatus && state.reportStatus.ok)) return;
+    state.reportStatus = 'sending'; render();
+    toExt('report', items);
   }
 
   async function unblock(id) {
@@ -998,6 +1012,10 @@
   #bouncer-root .bz-row1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   #bouncer-root .bz-name { font-weight: 600; font-size: 14px; color: var(--paper); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #bouncer-root .bz-row:hover .bz-name { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--muted); }
+  #bouncer-root .bz-auto { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--muted); }
+  #bouncer-root .bz-auto .bz-check { margin: 0; width: 14px; height: 14px; }
+  #bouncer-root .bz-auto .bz-check:checked { background: var(--paper); border-color: var(--paper); }
+  #bouncer-root .bz-auto .bz-check:checked::after { border-color: var(--ground); left: 3px; top: 0; width: 4px; height: 8px; }
   #bouncer-root .bz-notice { margin: 0 20px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; color: var(--paper); font-size: 12px; }
   #bouncer-root .bz-lab { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 10.5px; color: var(--muted); white-space: nowrap; flex: none; }
   #bouncer-root .bz-lab.hot { color: var(--ink); }
@@ -1183,21 +1201,15 @@
     else if (act === 'copy') copyText(t);
     else if (act === 'back') { state.results = null; state.reportStatus = null; state.showRep = false; scan(); }
     else if (act === 'rep-toggle') { state.showRep = !state.showRep; render(); }
-    else if (act === 'report') {
-      const items = state.groups.filter((g) => g.done && state.reportSel[g.key]).map((g) => ({
-        name: g.name, is_api: !!g.isApi, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
-        numbers: g.numbers.map((n) => n.hash).filter(Boolean).slice(0, 20),
-      }));
-      if (!items.length) return;
-      state.reportStatus = 'sending'; render();
-      toExt('report', items);
-    }
+    else if (act === 'report') submitReport();
+    else if (act === 'auto-report') { state.history.autoReport = !state.history.autoReport; saveHistory(); render(); if (state.history.autoReport) submitReport(); }
     else if (act === 'diag') { flash(t, 'Collecting…'); diag().then(() => flash(t, 'Copied')); }
   }
 
   function onChange(e) {
     const t = e.target;
-    if (t.classList.contains('bz-rep-check')) { state.reportSel[t.dataset.key] = t.checked; render(); }
+    if (t.dataset.auto) { state.history.autoReport = t.checked; saveHistory(); render(); if (t.checked) submitReport(); }
+    else if (t.classList.contains('bz-rep-check')) { state.reportSel[t.dataset.key] = t.checked; render(); }
     else if (t.classList.contains('bz-check')) { const g = findGroup(t.dataset.key); if (g) g.checked = t.checked; state.armed = false; render(); }
   }
 
@@ -1400,6 +1412,7 @@
         <button class="bz-btn ghost" data-act="card">Save share card</button>
       </div>
       <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Names and hashed numbers only · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
+      <div class="bz-hint" style="margin-top:6px"><label class="bz-auto"><input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}> Add to the Wall automatically after every run</label></div>
       ${state.showRep ? renderRepList(bounced) : ''}
       ${!A.optout || s.optoutDead ? `<div class="bz-tip">To make it stick, open their chat on your phone and tap <b>Stop</b> on a marketing message.</div>` : ''}
       ${state.notice ? `<div class="bz-notice" style="margin-top:14px">${esc(state.notice)}</div>` : ''}
