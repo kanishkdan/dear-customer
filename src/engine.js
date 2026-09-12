@@ -1101,13 +1101,13 @@
   #bouncer-root .bz-bar-track i { display: block; height: 100%; background: var(--ink); border-radius: 0 4px 4px 0; transition: width .3s ease; }
   #bouncer-root .bz-bar-row:hover .bz-bar-track i { background: #f0453d; }
   #bouncer-root .bz-bar-val { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
-  #bouncer-root .bz-tt { display: none; position: absolute; left: 150px; top: calc(100% + 2px); z-index: 2; background: #202c33; border: 1px solid var(--line); border-radius: 3px; padding: 6px 9px; font-size: 11px; color: var(--paper); white-space: nowrap; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  #bouncer-root .bz-tt { display: none; position: absolute; left: 32px; right: 0; top: calc(100% + 2px); z-index: 2; background: #202c33; border: 1px solid var(--line); border-radius: 3px; padding: 6px 9px; font-size: 11px; line-height: 1.4; color: var(--paper); white-space: normal; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
   #bouncer-root .bz-bar-row:hover .bz-tt, #bouncer-root .bz-run:hover .bz-tt { display: block; }
   #bouncer-root .bz-runs-head { padding: 10px 20px 8px; font-size: 10.5px; color: var(--muted); border-top: 1px solid var(--line); }
-  #bouncer-root .bz-runs { display: flex; align-items: flex-end; gap: 3px; height: 56px; padding: 0 20px 18px; }
-  #bouncer-root .bz-run { flex: 1; max-width: 28px; background: var(--ink); border-radius: 3px 3px 0 0; position: relative; opacity: .85; }
+  #bouncer-root .bz-runs { display: flex; align-items: flex-end; gap: 3px; height: 56px; padding: 0 20px 18px; position: relative; }
+  #bouncer-root .bz-run { flex: 1; max-width: 28px; background: var(--ink); border-radius: 3px 3px 0 0; position: static; opacity: .85; }
   #bouncer-root .bz-run:hover { opacity: 1; }
-  #bouncer-root .bz-run .bz-tt { left: 0; top: auto; bottom: calc(100% + 4px); }
+  #bouncer-root .bz-run .bz-tt { left: 20px; right: 20px; top: auto; bottom: calc(100% - 12px); }
   #bouncer-root .bz-warn { color: var(--muted); }
 
   /* results */
