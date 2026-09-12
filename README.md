@@ -97,6 +97,8 @@ scripts/package.sh       builds the store zip into dist/
 
 ## The Wall of Shame
 
+A business is only named on the public Wall once **three different people** have bounced it for promotional messages. Below that its reports are stored but never published, and the numbers it used are not published either, so nobody is named on one person's say-so. The threshold is `MIN_REPORTERS` in `community/wrangler.jsonc`. Anyone listed can ask to be removed through the issue tracker.
+
 `community/` is a Cloudflare Worker with a D1 database. `POST /report` takes the extension's reports, `GET /list.json` is the public data, `/` is the Wall of Shame, `/privacy` is the policy. To run your own: `npx wrangler d1 create bouncer-list`, put the id in `wrangler.jsonc`, `npx wrangler d1 execute bouncer-list --remote --file schema.sql`, `npx wrangler deploy`, then change `LIST_URL` in `src/background.js` and the matching `host_permissions` entry in `manifest.json`.
 
 ## Debug

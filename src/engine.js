@@ -43,6 +43,7 @@
     reportStatus: null,        // null | 'sending' | { ok, totals } | { error }
     cancel: false,             // set by the Stop button during a run
     notice: null,              // transient one-line message under the toolbar
+    showIgnored: false,
     view: 'list',              // 'list' | 'chart' | 'setup'
     expanded: false,           // wide mode: list on the left, dashboard on the right
     activeId: null,            // number currently being bounced
@@ -61,7 +62,7 @@
     if (type === 'history') {
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0 };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, ignored: payload.ignored || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0 };
         if (payload.actions && typeof payload.actions === 'object') state.actions = { ...state.actions, ...payload.actions };
         state.onboarded = !!payload.onboarded;
       }
@@ -130,6 +131,30 @@
   };
 
   function saveHistory() { toExt('save', state.history); }
+
+  // Businesses you never want bounced. Matched by the same name key the groups use,
+  // so a new number from an ignored business stays ignored.
+  const ignoredMap = () => state.history.ignored || (state.history.ignored = {});
+  const isIgnored = (key) => !!ignoredMap()[key];
+  function ignoreKeys(keys) {
+    const m = ignoredMap();
+    const names = [];
+    for (const key of keys) {
+      const g = state.groups.find((x) => x.key === key);
+      if (!g || m[key]) continue;
+      m[key] = { name: g.name, ts: nowSec() };
+      g.checked = false;
+      names.push(g.name);
+    }
+    if (names.length) {
+      saveHistory();
+      notice(names.length === 1
+        ? `Ignoring ${names[0]}. It won't show up again.`
+        : `Ignoring ${names.length} businesses. They won't show up again.`);
+    }
+    render();
+  }
+  function unignore(key) { delete ignoredMap()[key]; saveHistory(); render(); }
   function setBadge(text) { toExt('badge', text); }
 
   // ----------------------------------------------------------- wa-js status
@@ -547,7 +572,7 @@
       state.groups = groupRows(rows);
       rememberSeen(rows.filter((r) => r.kind === 'biz'));
       state.scanned = true;
-      const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length).length;
+      const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && g.promo && !isIgnored(g.key)).length;
       setBadge(activeBiz ? String(activeBiz) : '');
     } catch (e) {
       state.scanError = String((e && e.message) || e);
@@ -582,7 +607,7 @@
       g.category = g.numbers.map((n) => n.category).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0] || 'unknown';
       g.optedOut = g.numbers.some((n) => n.optedOut);
       g.promo = g.category === 'promo' || g.category === 'guess';
-      g.checked = g.kind === 'biz' && g.active.length > 0 && g.promo;
+      g.checked = g.kind === 'biz' && g.active.length > 0 && g.promo && !isIgnored(g.key);
       g.expanded = false;
       return g;
     });
@@ -1070,6 +1095,12 @@
   #bouncer-root .bz-auto .bz-check { margin: 0; width: 14px; height: 14px; }
   #bouncer-root .bz-auto .bz-check:checked { background: var(--paper); border-color: var(--paper); }
   #bouncer-root .bz-auto .bz-check:checked::after { border-color: var(--ground); left: 3px; top: 0; width: 4px; height: 8px; }
+  #bouncer-root .bz-ignore { color: var(--muted); }
+  #bouncer-root .bz-ignore:hover { color: var(--paper); text-decoration: underline; text-underline-offset: 2px; }
+  #bouncer-root .bz-ign { display: grid; gap: 2px; margin-top: 8px; }
+  #bouncer-root .bz-ign-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: #cfd6da; }
+  #bouncer-root .bz-ign-row button { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #bouncer-root .bz-ign-row button:hover { color: var(--paper); text-decoration: underline; text-underline-offset: 2px; }
   #bouncer-root .bz-notice { margin: 0 20px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; color: var(--paper); font-size: 12px; }
   #bouncer-root .bz-lab { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 10.5px; color: var(--muted); white-space: nowrap; flex: none; }
   #bouncer-root .bz-lab.hot { color: var(--ink); }
@@ -1198,6 +1229,9 @@
 
   // ---------------------------------------------------------------- render
   let root, pill, panel;
+  let shiftHeld = false;      // set on mousedown so the change handler can see it
+  let rowOrder = [];          // keys in the order they are on screen, for range select
+  let lastPicked = null;
   const PERIODS = [[7, '7d', 'this week'], [14, '14d', 'in the last 14 days'], [30, '30d', 'in the last 30 days'], [0, 'All', 'ever']];
   const NOT_READY = {
     loading: ['Connecting', 'A few seconds once your chats are showing. If it never clears, reload this tab.'],
@@ -1223,6 +1257,7 @@
     document.body.appendChild(root);
     pill = root.querySelector('.bz-pill');
     panel = root.querySelector('.bz-panel');
+    root.addEventListener('mousedown', (e) => { shiftHeld = !!e.shiftKey; }, true);
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closePanel(); });
@@ -1326,6 +1361,10 @@
     else if (act === 'all') { state.groups.forEach((g) => { if (g.kind === 'biz' && g.active.length && (state.filter === 'all' || g.promo)) g.checked = true; }); render(); }
     else if (act === 'none') { state.groups.forEach((g) => { g.checked = false; }); state.armed = false; render(); }
     else if (act === 'unknown') { state.showUnknown = !state.showUnknown; render(); }
+    else if (act === 'ignore') ignoreKeys([t.dataset.key]);
+    else if (act === 'ignore-sel') ignoreKeys(state.groups.filter((g) => g.checked).map((g) => g.key));
+    else if (act === 'unignore') unignore(t.dataset.key);
+    else if (act === 'show-ignored') { state.showIgnored = !state.showIgnored; render(); }
     else if (act === 'unblock') unblock(t.dataset.id);
     else if (act === 'card') downloadCard();
     else if (act === 'copy') copyText(t);
@@ -1340,12 +1379,29 @@
     const t = e.target;
     if (t.dataset.auto) { state.history.autoReport = t.checked; saveHistory(); render(); if (t.checked) submitReport(); }
     else if (t.classList.contains('bz-rep-check')) { state.reportSel[t.dataset.key] = t.checked; render(); }
-    else if (t.classList.contains('bz-check')) { const g = findGroup(t.dataset.key); if (g) g.checked = t.checked; state.armed = false; render(); }
+    else if (t.classList.contains('bz-check')) {
+      const key = t.dataset.key;
+      const g = findGroup(key);
+      if (g) g.checked = t.checked;
+      // Shift-click extends the selection from the last row you picked.
+      if (shiftHeld && lastPicked && lastPicked !== key) {
+        const a = rowOrder.indexOf(lastPicked), b = rowOrder.indexOf(key);
+        if (a !== -1 && b !== -1) {
+          for (const k of rowOrder.slice(Math.min(a, b), Math.max(a, b) + 1)) {
+            const x = findGroup(k); if (x) x.checked = t.checked;
+          }
+        }
+      }
+      lastPicked = key;
+      shiftHeld = false;
+      state.armed = false;
+      render();
+    }
   }
 
   function render() {
     if (!root) return;
-    const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && g.promo);
+    const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && g.promo && !isIgnored(g.key));
     pill.hidden = state.open || (loginScreen() && !state.open);
     const countEl = pill.querySelector('.bz-count');
     if (state.scanned && activeBiz.length) { countEl.textContent = String(activeBiz.length); countEl.hidden = false; }
@@ -1389,11 +1445,12 @@
     }
     if (!state.scanned) return `<div class="bz-empty"><div class="h">Ready</div><button class="bz-link" data-act="scan">Look for businesses</button></div>`;
 
-    const allBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length);
+    const allBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && !isIgnored(g.key));
     const promoOnly = state.filter === 'promo';
     const biz = (promoOnly ? allBiz.filter((g) => g.promo) : allBiz).slice().sort(rankSort);
     const hiddenN = allBiz.length - biz.length;
-    const unknown = promoOnly ? [] : state.groups.filter((g) => g.kind === 'unknown' && g.active.length);
+    const unknown = promoOnly ? [] : state.groups.filter((g) => g.kind === 'unknown' && g.active.length && !isIgnored(g.key));
+    rowOrder = biz.map((g) => g.key).concat(state.showUnknown ? unknown.map((g) => g.key) : []);
     const burned = biz.reduce((n, g) => n + seenCount(g), 0);
     const sel = biz.filter((g) => g.checked).length;
     const seg = `<span class="bz-seg">${PERIODS.map(([v, l]) => `<button class="${state.days === v ? 'on' : ''}" data-act="period" data-v="${v}">${l}</button>`).join('')}</span>`;
@@ -1413,6 +1470,7 @@
         </div>
         <div class="bz-toolbar"><span class="sp"></span><button data-act="scan">Rescan</button></div>
         ${renderUnknown(unknown)}
+        ${renderIgnored()}
         ${state.scanStats && state.scanStats.chats ? `<div class="bz-tip">Missing something that's clearly an ad? <button class="bz-link muted" data-act="diag">Copy diagnostics</button> and send them over.</div>` : ''}`;
     }
     return `
@@ -1421,12 +1479,22 @@
           <div class="bz-lead">${bizWord(biz.length)} ${promoOnly ? 'sent you promotions' : 'messaged you'} ${esc(periodWord())}, burning <b>${burned}</b> ${burned === 1 ? 'number' : 'numbers'} on you.<br><span class="m">Ranked by numbers burned.</span></div></div>
         ${tabs}
       </div>
-      <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button><span class="sp"></span><button data-act="scan">Rescan</button></div>
+      <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button>${sel ? `<span>·</span><button data-act="ignore-sel" title="Never show ${sel === 1 ? 'this business' : 'these businesses'} again">Ignore ${sel}</button>` : ''}<span class="sp"></span><button data-act="scan">Rescan</button></div>
       ${state.notice ? `<div class="bz-notice" style="margin-top:12px">${esc(state.notice)}</div>` : ''}
       ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Ticked rows are promotional senders. Click a row to open the conversation and check first. Deleted chats can't be recovered.</div>` : ''}
       <div class="bz-ledger">${biz.map((g, i) => renderRow(g, i + 1)).join('')}</div>
       ${promoOnly && hiddenN ? `<div class="bz-tip">${hiddenN} more ${bizWord(hiddenN)} messaged you without looking promotional. <button class="bz-link" data-act="filter" data-v="all">Show all</button></div>` : ''}
-      ${renderUnknown(unknown)}`;
+      ${renderUnknown(unknown)}
+      ${renderIgnored()}`;
+  }
+
+  function renderIgnored() {
+    const rows = Object.entries(ignoredMap()).map(([key, e]) => ({ key, name: (e && e.name) || key }));
+    if (!rows.length) return '';
+    return `<div class="bz-section">
+      <button class="bz-link muted" data-act="show-ignored">${rows.length} ignored ${state.showIgnored ? '‹' : '›'}</button>
+      ${state.showIgnored ? `<div class="bz-ign">${rows.map((r) => `<div class="bz-ign-row"><span>${esc(r.name)}</span><button data-act="unignore" data-key="${esc(r.key)}">Stop ignoring</button></div>`).join('')}</div>` : ''}
+    </div>`;
   }
 
   function renderRow(g, rank) {
@@ -1449,7 +1517,8 @@
       plural(g.msgs, 'message'),
       esc(fmtAgo(last.ts)),
       single ? esc(fmtPhone(last.phone)) : (!locked ? `<button data-act="expand" data-key="${esc(g.key)}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : plural(g.numbers.length, 'number')),
-    ].join(' · ');
+      !locked ? `<button class="bz-ignore" data-act="ignore" data-key="${esc(g.key)}" title="Never show ${esc(g.name)} again">Ignore</button>` : '',
+    ].filter(Boolean).join(' · ');
     return `
       <div class="bz-row ${g.checked ? 'on' : ''} ${g.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-act="open" data-key="${esc(g.key)}" title="Open the conversation at their last message">
         <input type="checkbox" class="bz-check" data-act="noop" data-key="${esc(g.key)}" ${g.checked ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select ${esc(g.name)}">

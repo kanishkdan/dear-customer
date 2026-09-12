@@ -7,7 +7,8 @@
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
     "REPO_URL": "https://github.com/kanishkdan/bouncer",
-    "SITE_URL": "https://bouncer.kanishkdan.com"
+    "SITE_URL": "https://bouncer.kanishkdan.com",
+    "MIN_REPORTERS": "3"
   },
   "workers_dev": true,
   "routes": [

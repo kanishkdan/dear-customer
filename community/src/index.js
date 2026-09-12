@@ -11,6 +11,14 @@
 
 const ICON_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\"> <rect width=\"1024\" height=\"1024\" rx=\"230\" fill=\"#1c1c1e\"/> <!-- the bouncer's sunglasses: two solid lenses, a short bridge --> <rect x=\"150\" y=\"410\" width=\"300\" height=\"204\" rx=\"72\" fill=\"#fff\"/> <rect x=\"574\" y=\"410\" width=\"300\" height=\"204\" rx=\"72\" fill=\"#fff\"/> <rect x=\"440\" y=\"492\" width=\"144\" height=\"40\" rx=\"20\" fill=\"#fff\"/> </svg>";
 
+// A business is only named publicly once this many different people have bounced
+// it for promotional messages. One person's opinion is not a public accusation.
+const DEFAULT_MIN_REPORTERS = 3;
+const minReporters = (env) => {
+  const n = parseInt(env.MIN_REPORTERS, 10);
+  return Number.isFinite(n) && n >= 1 ? n : DEFAULT_MIN_REPORTERS;
+};
+
 const MAX_BODY = 64 * 1024;
 const MAX_ITEMS = 50;
 const MAX_HASHES = 20;
@@ -141,13 +149,21 @@ async function report(request, env, ctx) {
 
 // -------------------------------------------------------------------- list
 async function totalsRow(env) {
+  const min = minReporters(env);
   const t = await env.DB.prepare(`
+    WITH promo AS (
+      SELECT name_key, COUNT(*) AS people
+      FROM reports
+      WHERE category IS NULL OR category IN ('promo', 'guess')
+      GROUP BY name_key
+    )
     SELECT
       (SELECT COUNT(DISTINCT install_id) FROM reports) AS people,
-      (SELECT COUNT(DISTINCT name_key) FROM reports) AS businesses,
-      (SELECT COUNT(DISTINCT number_hash) FROM numbers) AS numbers,
-      (SELECT COALESCE(SUM(count), 0) FROM reports) AS reports`).first();
-  return { people: t.people || 0, businesses: t.businesses || 0, numbers: t.numbers || 0, reports: t.reports || 0 };
+      (SELECT COUNT(*) FROM promo WHERE people >= ?1) AS businesses,
+      (SELECT COUNT(DISTINCT name_key) FROM reports) - (SELECT COUNT(*) FROM promo WHERE people >= ?1) AS pending,
+      (SELECT COUNT(DISTINCT number_hash) FROM numbers WHERE name_key IN (SELECT name_key FROM promo WHERE people >= ?1)) AS numbers,
+      (SELECT COALESCE(SUM(count), 0) FROM reports) AS reports`).bind(min).first();
+  return { people: t.people || 0, businesses: t.businesses || 0, pending: Math.max(0, t.pending || 0), numbers: t.numbers || 0, reports: t.reports || 0, min };
 }
 
 // Last 30 days, one bucket per UTC day: new report rows, first-time people,
@@ -191,10 +207,17 @@ async function listData(env) {
         (SELECT COUNT(DISTINCT number_hash) FROM numbers n WHERE n.name_key = r.name_key) AS numbers
       FROM reports r
       GROUP BY r.name_key
+      HAVING promo_people >= ?1
       ORDER BY promo_people DESC, people DESC, numbers DESC, reports DESC
-      LIMIT 1000`).all(),
+      LIMIT 1000`).bind(minReporters(env)).all(),
     totalsRow(env),
-    env.DB.prepare(`SELECT DISTINCT number_hash, name_key FROM numbers LIMIT 20000`).all(),
+    env.DB.prepare(`
+      SELECT DISTINCT n.number_hash, n.name_key FROM numbers n
+      WHERE n.name_key IN (
+        SELECT name_key FROM reports
+        WHERE category IS NULL OR category IN ('promo', 'guess')
+        GROUP BY name_key HAVING COUNT(*) >= ?1
+      ) LIMIT 20000`).bind(minReporters(env)).all(),
   ]);
   const hashMap = {};
   for (const h of hashes.results || []) hashMap[h.number_hash] = h.name_key;
@@ -261,7 +284,7 @@ function privacyPage(env) {
   <p>Not sent, ever: your phone number, your name, your contacts, message content, or which businesses you chose not to report. The extension makes one other request to this site: it downloads the public list about every six hours so it can flag businesses others have reported.</p>
 
   <h2>What this website keeps</h2>
-  <p>The reports above, in a database, for as long as the list exists. The public page shows business names and counts. Hashes are published in <code>list.json</code> so the extension can match numbers; they are not reversible into numbers without already knowing the number. Standard server logs with IP addresses are kept briefly for abuse prevention and rate limiting.</p>
+  <p>The reports above, in a database, for as long as the list exists. A business is only named on the public page once three different people have reported it for promotional messages; below that its reports are stored but never published, and the numbers it used are not published either. The public page shows business names and counts. Hashes are published in <code>list.json</code> so the extension can match numbers; they are not reversible into numbers without already knowing the number. Standard server logs with IP addresses are kept briefly for abuse prevention and rate limiting.</p>
 
   <h2>Removal</h2>
   <p>If a business is listed and you believe that is wrong, or you run that business, <a href="${esc(repo)}/issues/new?title=Removal%20request">open a removal request</a>. Entries come from users, not from the site operator.</p>
@@ -314,7 +337,7 @@ async function page(env) {
         <td class="num burned">${b.numbers}</td>
         <td class="num muted">${esc(fmtAgo(b.last_seen))}</td>
       </tr>`).join('')
-    : '<tr><td colspan="5" class="empty">Nothing here yet. Be the first to bounce someone.</td></tr>';
+    : `<tr><td colspan="5" class="empty">Nothing listed yet.${data.totals.pending ? ` ${data.totals.pending} ${data.totals.pending === 1 ? 'business has' : 'businesses have'} been reported but ${data.totals.pending === 1 ? 'has' : 'have'} not reached ${data.totals.min} people yet.` : ' Be the first to bounce someone.'}</td></tr>`;
 
   const html = `<!doctype html>
 <html lang="en"><head>
@@ -363,12 +386,12 @@ async function page(env) {
 </style></head>
 <body><div class="bar"></div><div class="wrap">
   <h1><span class="dot"></span>Wall of Shame</h1>
-  <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. A business here sent promotions to the people who bounced it; it may send alerts others want, and Bouncer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Bouncer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
+  <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is only named here once ${data.totals.min} different people have bounced it</b>, so no one is listed on one person's say-so. A business here sent promotions to the people who bounced it; it may send alerts others want, and Bouncer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Bouncer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
   <div class="stats">
-    <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Businesses</div>${S ? spark(S.businesses.cumulative) : ''}</div>
+    <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Listed</div>${S ? spark(S.businesses.cumulative) : ''}</div>
     <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div>${S ? spark(S.numbers.cumulative) : ''}</div>
     <div class="stat"><div class="n">${data.totals.people}</div><div class="l">People reporting</div>${S ? spark(S.people.cumulative) : ''}</div>
-    <div class="stat"><div class="n">${data.totals.reports}</div><div class="l">Reports</div>${S ? spark(S.reports.cumulative) : ''}</div>
+    <div class="stat"><div class="n">${data.totals.pending}</div><div class="l">Below ${data.totals.min}, not shown</div>${S ? spark(S.reports.cumulative) : ''}</div>
   </div>
   ${S ? `<div class="activity"><div class="l"><span>Reports per day</span><span>last 30 days</span></div>${columns(S.days, S.reports.daily)}</div>` : ''}
   <table>
@@ -381,7 +404,7 @@ async function page(env) {
   </div>
   <footer>
     <p><b>What's stored.</b> The business name exactly as WhatsApp shows it, a SHA-256 hash of each number it used, whether it's an official Business Platform account, the country code, and a random id per browser so one person can't be counted twice. No phone numbers, no message content, no identity of the person reporting.</p>
-    <p><b>Counting.</b> The main count is people who bounced the business for promotional messages. A grey +N is people who bounced it for something else, such as alerts they didn't want. Only the promotional count ranks.</p>
+    <p><b>Counting.</b> The main count is people who bounced the business for promotional messages, and it has to reach ${data.totals.min} before the business appears at all. A grey +N is people who bounced it for something else, such as alerts they didn't want. Only the promotional count ranks. Reports below the threshold are stored but never published, and the numbers they used are not published either.</p>
     <p><b>Listed and think it's wrong?</b> <a href="${esc(repo)}/issues/new?title=Removal%20request">Open a removal request</a>. Entries come from users, not from us.</p>
     <p><a href="/privacy">Privacy</a> · <a href="${esc(repo)}">Source on GitHub</a> · <code>GET /list.json</code> is public if you want the data. Not affiliated with WhatsApp or Meta.</p>
   </footer>
