@@ -287,19 +287,17 @@ async function page(env) {
     const pts = values.map((v, i) => [ 3 + (i / (values.length - 1)) * (W - 6), H - 3 - ((v - min) / span) * (H - 6) ]);
     const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
     const last = pts[pts.length - 1];
-    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="#aebac1" stroke-width="1.5" vector-effect="non-scaling-stroke"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.5" fill="#e9edef"/></svg>`;
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="#aebac1" stroke-width="1.5" vector-effect="non-scaling-stroke"/><path d="M${last[0].toFixed(1)},${last[1].toFixed(1)} h0.01" stroke="#e9edef" stroke-width="5" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
   };
   const columns = (days, values) => {
     if (!values || !values.length) return '';
-    const n = values.length, W = 600, H = 96, pad = 4, cw = (W - pad * (n - 1)) / n, max = Math.max(1, ...values);
+    const n = values.length, max = Math.max(1, ...values);
     const bars = values.map((v, i) => {
-      const h = v ? Math.max(3, Math.round((v / max) * (H - 24))) : 0;
-      const x = (i * (cw + pad)).toFixed(1), y = (H - 18 - h).toFixed(1);
-      return `<rect x="${x}" y="${y}" width="${cw.toFixed(1)}" height="${h}" rx="2" fill="${v ? '#e0332b' : '#1f2c34'}"${v ? '' : ` height="2" y="${H - 20}"`}><title>${esc(days[i])} · ${v} ${v === 1 ? 'report' : 'reports'}</title></rect>`;
+      const pct = v ? Math.max(4, Math.round((v / max) * 100)) : 0;
+      return `<span class="col${v ? '' : ' zero'}" style="height:${pct}%" title="${esc(days[i])} · ${v} ${v === 1 ? 'report' : 'reports'}"></span>`;
     }).join('');
-    return `<svg class="cols" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Reports per day, last 30 days">${bars}
-      <text x="0" y="${H - 4}" fill="#8696a0" font-size="10">${esc(days[0])}</text><text x="${W}" y="${H - 4}" fill="#8696a0" font-size="10" text-anchor="end">${esc(days[n - 1])}</text>
-      <text x="0" y="10" fill="#8696a0" font-size="10">peak ${max} in a day</text></svg>`;
+    return `<div class="cols" role="img" aria-label="Reports per day, last 30 days">${bars}</div>
+      <div class="axis"><span>${esc(days[0])}</span><span>peak ${max} in a day</span><span>${esc(days[n - 1])}</span></div>`;
   };
   const S = data.series;
   const rowsHtml = data.businesses.length
@@ -334,7 +332,10 @@ async function page(env) {
   .stat .spark { display: block; width: 100%; height: 28px; margin-top: 10px; }
   .activity { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px 10px; margin-bottom: 28px; }
   .activity .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; margin-bottom: 8px; display: flex; justify-content: space-between; }
-  .activity .cols { display: block; width: 100%; height: 96px; }
+  .activity .cols { display: flex; align-items: flex-end; gap: 3px; height: 96px; border-bottom: 1px solid #2a3942; }
+  .activity .col { flex: 1; min-width: 0; background: #e0332b; border-radius: 3px 3px 0 0; }
+  .activity .col.zero { background: #1f2c34; height: 2px !important; }
+  .activity .axis { display: flex; justify-content: space-between; color: #8696a0; font-size: 11px; margin-top: 8px; font-variant-numeric: tabular-nums; }
   table { width: 100%; border-collapse: collapse; background: #111b21; border: 1px solid #2a3942; border-radius: 12px; overflow: hidden; }
   th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #1f2c34; }
   th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; font-weight: 700; background: #182229; }
@@ -363,7 +364,7 @@ async function page(env) {
     <div class="stat"><div class="n">${data.totals.people}</div><div class="l">People reporting</div>${S ? spark(S.people.cumulative) : ''}</div>
     <div class="stat"><div class="n">${data.totals.reports}</div><div class="l">Reports</div>${S ? spark(S.reports.cumulative) : ''}</div>
   </div>
-  ${S ? `<div class="activity"><div class="l"><span>Reports per day</span><span>last 30 days · lines above show growth over the same period</span></div>${columns(S.days, S.reports.daily)}</div>` : ''}
+  ${S ? `<div class="activity"><div class="l"><span>Reports per day</span><span>last 30 days</span></div>${columns(S.days, S.reports.daily)}</div>` : ''}
   <table>
     <thead><tr><th>#</th><th>Business</th><th class="num">People bounced for promos</th><th class="num">Numbers burned</th><th class="num">Last seen</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
