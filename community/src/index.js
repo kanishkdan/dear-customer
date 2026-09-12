@@ -9,6 +9,8 @@
  * and a random per-install id. No user identity, no message content.
  */
 
+const ICON_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 128\">\n  <defs>\n    <linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">\n      <stop offset=\"0\" stop-color=\"#ef4a42\"/>\n      <stop offset=\"1\" stop-color=\"#d42a22\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"128\" height=\"128\" rx=\"30\" fill=\"url(#g)\"/>\n  <!-- temples -->\n  <rect x=\"4\" y=\"54\" width=\"18\" height=\"8\" rx=\"4\" fill=\"#fff\"/>\n  <rect x=\"106\" y=\"54\" width=\"18\" height=\"8\" rx=\"4\" fill=\"#fff\"/>\n  <!-- bridge -->\n  <rect x=\"54\" y=\"53\" width=\"20\" height=\"8\" rx=\"4\" fill=\"#fff\"/>\n  <!-- lenses: white frame, dark glass -->\n  <rect x=\"14\" y=\"42\" width=\"46\" height=\"34\" rx=\"12\" fill=\"#fff\"/>\n  <rect x=\"68\" y=\"42\" width=\"46\" height=\"34\" rx=\"12\" fill=\"#fff\"/>\n  <rect x=\"19\" y=\"47\" width=\"36\" height=\"24\" rx=\"8\" fill=\"#111b21\"/>\n  <rect x=\"73\" y=\"47\" width=\"36\" height=\"24\" rx=\"8\" fill=\"#111b21\"/>\n  <!-- glints -->\n  <rect x=\"24\" y=\"51\" width=\"10\" height=\"4\" rx=\"2\" fill=\"#fff\" opacity=\".55\"/>\n  <rect x=\"78\" y=\"51\" width=\"10\" height=\"4\" rx=\"2\" fill=\"#fff\" opacity=\".55\"/>\n</svg>\n";
+
 const MAX_BODY = 64 * 1024;
 const MAX_ITEMS = 50;
 const MAX_HASHES = 20;
@@ -24,6 +26,8 @@ export default {
       if (url.pathname === '/list.json' && request.method === 'GET') return await cached(request, ctx, () => listJson(env));
       if (url.pathname === '/' && request.method === 'GET') return await cached(request, ctx, () => page(env));
       if (url.pathname === '/privacy' && request.method === 'GET') return privacyPage(env);
+      if (url.pathname === '/favicon.svg' || url.pathname === '/icon.svg') return new Response(ICON_SVG, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
+      if (url.pathname === '/favicon.ico') return Response.redirect(url.origin + '/favicon.svg', 302);
       if (url.pathname === '/health') return json({ ok: true });
       return json({ error: 'not_found' }, 404);
     } catch (e) {
@@ -219,6 +223,7 @@ function privacyPage(env) {
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bouncer · Privacy</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0b141a; color: #e9edef; font: 16px/1.6 -apple-system, "SF Pro Display", Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
@@ -315,6 +320,7 @@ async function page(env) {
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bouncer · Wall of Shame</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta name="description" content="Businesses that spam Indian WhatsApp, ranked by how many people bounced them and how many numbers they burned.">
 <style>
   :root { color-scheme: dark; }
@@ -323,7 +329,7 @@ async function page(env) {
   .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
   .bar { height: 8px; background: #ff3b30; }
   h1 { font-size: 34px; font-weight: 900; letter-spacing: -.01em; margin: 24px 0 6px; display: flex; align-items: center; gap: 12px; }
-  h1 .dot { width: 14px; height: 14px; border-radius: 50%; background: #ff3b30; display: inline-block; }
+  h1 .dot { width: 34px; height: 34px; border-radius: 8px; display: inline-block; background: url(/favicon.svg) center/contain no-repeat; }
   .sub { color: #8696a0; margin: 0 0 28px; max-width: 640px; }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
   .stat { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px; }
