@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bouncer-list",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "REPO_URL": "https://github.com/kanishkdan/bouncer",
+    "SITE_URL": "https://bouncer.kanishkdan.com"
+  },
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "bouncer.kanishkdan.com", "custom_domain": true }
+  ],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "bouncer-list", "database_id": "0ca57e61-4f0f-4813-a859-ed37d80a0bab" }
+  ],
+  "ratelimits": [
+    { "name": "RL", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }
+  ]
+}

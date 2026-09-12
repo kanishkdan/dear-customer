@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #111b21; }
+  .tile { position: relative; overflow: hidden; background: #111b21; color: #e9edef; font-family: -apple-system, "SF Pro Display", Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .display { font-family: "Avenir Next Condensed", "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; font-weight: 700; }
+  .word { letter-spacing: .22em; font-size: 15px; color: #e9edef; display: flex; align-items: center; gap: 10px; }
+  .word i { width: 9px; height: 9px; border-radius: 50%; background: #e0332b; display: inline-block; }
+  .stamp { display: inline-block; padding: 6px 14px 5px; border: 4px solid #e0332b; border-radius: 5px; color: #e0332b; letter-spacing: .22em; line-height: 1; transform: rotate(-7deg); transform-origin: 30% 60%; }
+  .big { line-height: .86; letter-spacing: -.01em; color: #e9edef; }
+  .lead { color: #e9edef; }
+  .muted { color: #8696a0; }
+  /* small tile 440x280 */
+  .small { width: 440px; height: 280px; padding: 26px 28px; box-sizing: border-box; }
+  .small .stamp { font-size: 30px; margin: 22px 0 0 4px; }
+  .small .big { font-size: 96px; margin-top: 14px; }
+  .small .lead { font-size: 16px; margin-top: 8px; }
+  /* marquee 1400x560 */
+  .marquee { width: 1400px; height: 560px; padding: 40px 64px 60px; box-sizing: border-box; display: grid; grid-template-columns: 1fr 520px; gap: 40px; align-items: center; }
+  .marquee .word { font-size: 18px; position: absolute; bottom: 44px; left: 64px; }
+  .marquee .stamp { font-size: 58px; margin: 0 0 22px 6px; }
+  .marquee .big { font-size: 220px; }
+  .marquee .lead { font-size: 34px; margin-top: 16px; max-width: 640px; line-height: 1.2; }
+  .marquee .muted { font-size: 20px; margin-top: 14px; }
+  .ledger { border-top: 1px solid #2a3942; margin-top: 0; }
+  .row { display: grid; grid-template-columns: 30px 1fr auto; gap: 14px; padding: 16px 0; border-bottom: 1px solid #2a3942; border-left: 3px solid #e0332b; padding-left: 14px; background: rgba(224,51,43,.08); }
+  .row.off { border-left-color: transparent; background: transparent; opacity: .6; }
+  .row .rank { font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif; color: #8696a0; font-weight: 600; font-size: 18px; padding-top: 3px; }
+  .row .name { font-weight: 600; font-size: 20px; }
+  .row .name span { font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; letter-spacing: .1em; font-size: 12px; color: #e0332b; margin-left: 10px; font-weight: 600; }
+  .row .sub { color: #8696a0; font-size: 14px; margin-top: 3px; }
+  .row .tally { text-align: right; }
+  .row .tally b { display: block; font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 34px; color: #e0332b; line-height: .9; }
+  .row .tally small { font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; color: #8696a0; }
+</style></head>
+<body>
+<div id="small" class="tile small">
+  <div class="word display"><i></i>Bouncer</div>
+  <div class="stamp display">Bounced</div>
+  <div class="big display">14</div>
+  <div class="lead">numbers Finance Buddha burned on one phone.<br><span class="muted">One click. Gone.</span></div>
+</div>
+<div id="marquee" class="tile marquee">
+  <div class="word display"><i></i>Bouncer</div>
+  <div>
+    <div class="stamp display">Bounced</div>
+    <div class="big display">304</div>
+    <div class="lead">businesses that never asked, out of WhatsApp in one click.</div>
+    <div class="muted">Opts out, STOPs, reports, blocks, deletes. Counts the numbers they burned on you.</div>
+  </div>
+  <div class="ledger">
+    <div class="row"><div class="rank">01</div><div><div class="name">Finance Buddha<span>Promotional</span></div><div class="sub">16 messages · 22h ago · An exclusive loan offer has been unlocked</div></div><div class="tally"><b>14</b><small>numbers</small></div></div>
+    <div class="row"><div class="rank">02</div><div><div class="name">KreditBee<span>Promotional</span></div><div class="sub">15 messages · 10d ago · Pre-approved credit line up to ₹5 lakh</div></div><div class="tally"><b>8</b><small>numbers</small></div></div>
+    <div class="row off"><div class="rank">03</div><div><div class="name">Bigbasket<span style="color:#8696a0">Alerts</span></div><div class="sub">3 messages · 1h ago · Your order has been delivered</div></div><div class="tally"></div></div>
+  </div>
+</div>
+</body></html>
