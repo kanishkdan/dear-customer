@@ -22,7 +22,9 @@ Bouncer runs inside WhatsApp Web. Open it and it lists every business that has b
 • Sends STOP — taps the opt-out button on their latest message ("Disable all communication", "Unsubscribe", "STOP") the way the vendor's bot expects, and only types STOP when there's no button
 • Reports the number to WhatsApp
 • Blocks it
-• Deletes the chat
+• Archives the chat, or deletes it if you choose
+
+The first time you open it, Bouncer asks what you want it to do and explains each option and whether it can be undone.
 
 Businesses that only send order updates, OTPs and alerts are kept out of the way under All, so your bank and your grocer stay untouched. Click any name to open the chat and check before you act.
 

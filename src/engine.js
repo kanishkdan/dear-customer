@@ -14,6 +14,7 @@
   window.__bouncerLoaded = true;
 
   const VERSION = '1.0.0';
+  const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><rect x="150" y="410" width="300" height="204" rx="72" fill="#fff"/><rect x="574" y="410" width="300" height="204" rx="72" fill="#fff"/><rect x="440" y="492" width="144" height="40" rx="20" fill="#fff"/></svg>';
   const STOP_TEXT = 'STOP';
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const nowSec = () => Math.floor(Date.now() / 1000);
@@ -23,7 +24,9 @@
     open: false,
     days: 7,                   // 0 = all time
     filter: 'promo',           // 'promo' | 'all'
-    actions: { optout: true, stop: true, report: true, block: true, del: true },
+    actions: { optout: true, stop: true, report: true, block: true, archive: true, del: false },
+    onboarded: false,          // has the user answered "what do you want to do with these messages?"
+    onboardingShown: false,
     groups: [],
     scanned: false,
     scanning: false,
@@ -41,7 +44,7 @@
     reportStatus: null,        // null | 'sending' | { ok, totals } | { error }
     cancel: false,             // set by the Stop button during a run
     notice: null,              // transient one-line message under the toolbar
-    view: 'list',              // 'list' | 'chart'
+    view: 'list',              // 'list' | 'chart' | 'setup'
     expanded: false,           // wide mode: list on the left, dashboard on the right
     activeId: null,            // number currently being bounced
     armed: false,              // second-click confirm when the selection includes non-promotional rows
@@ -59,7 +62,9 @@
     if (type === 'history') {
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, autoReport: !!payload.autoReport };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded };
+        if (payload.actions && typeof payload.actions === 'object') state.actions = { ...state.actions, ...payload.actions };
+        state.onboarded = !!payload.onboarded;
       }
       render();
     } else if (type === 'open') {
@@ -763,14 +768,14 @@
     const targets = state.groups.filter((g) => g.checked);
     if (!targets.length) { log('run refused: nothing selected'); return; }
     const A = state.actions;
-    if (!A.optout && !A.stop && !A.report && !A.block && !A.del) { log('run refused: no actions'); return; }
+    if (!A.optout && !A.stop && !A.report && !A.block && !A.archive && !A.del) { log('run refused: no actions'); return; }
 
     const W = window.WPP;
     log('run start', { businesses: targets.length, actions: { ...A } });
     state.running = true;
     const total = targets.reduce((s, g) => s + g.numbers.length, 0);
     state.progress = { done: 0, total, biz: '', phone: '', step: '' };
-    const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, del: 0, failed: 0, top: [] };
+    const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, archive: 0, del: 0, failed: 0, top: [] };
     let optoutDead = false;
     const STOP_CAP = 30;
     let stopsSent = 0;
@@ -824,8 +829,12 @@
             await sleep(150);
           }
         }
+        if (A.archive && !A.del) {
+          label('archiving');
+          if (await step(n, 'archive', 'archive', async () => { try { await W.chat.archive(n.id); } catch (e) { if (/already/i.test(String((e && e.message) || e))) { n.result.archive = 'already'; return 'already'; } throw e; } })) { if (n.result.archive !== 'already') sum.archive++; } else sum.failed++;
+          await sleep(150);
+        }
         if (A.del) {
-          label('deleting chat');
           if (await step(n, 'del', 'delete', () => W.chat.delete(n.id))) sum.del++; else sum.failed++;
           await sleep(150);
         }
@@ -846,7 +855,7 @@
       .slice(0, 5);
     state.history.runs.push({
       ts: sum.ts, businesses: sum.businessesDone, numbers: sum.numbers - (sum.cancelled || 0),
-      optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, del: sum.del,
+      optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, archive: sum.archive, del: sum.del,
     });
     const bd = state.history.bounced || (state.history.bounced = {});
     for (const g of targets) {
@@ -988,6 +997,8 @@
   #bouncer-root .bz-pill { position: fixed; left: 16px; bottom: 16px; display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 14px; border-radius: 3px; background: var(--ground); color: var(--paper); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-family: var(--display); text-transform: uppercase; letter-spacing: .16em; font-weight: 600; font-size: 13px; transition: background .15s; }
   #bouncer-root .bz-pill:hover { background: #182229; }
   #bouncer-root .bz-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); flex: none; }
+  #bouncer-root .bz-logo { width: 22px; height: 22px; flex: none; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+  #bouncer-root .bz-pill .bz-logo { width: 20px; height: 20px; }
   #bouncer-root .bz-count { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 
   /* sheet */
@@ -1096,11 +1107,6 @@
   #bouncer-root .bz-btn.armed { background: #b8261f; }
   #bouncer-root .bz-hint { margin-top: 9px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
   #bouncer-root .bz-hint button { color: var(--paper); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
-  #bouncer-root .bz-opts { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
-  #bouncer-root .bz-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 11px; color: var(--muted); }
-  #bouncer-root .bz-chip .dot { width: 9px; height: 9px; border: 1.5px solid var(--muted); border-radius: 1px; }
-  #bouncer-root .bz-chip.on { color: var(--paper); }
-  #bouncer-root .bz-chip.on .dot { background: var(--ink); border-color: var(--ink); }
 
   /* progress */
   #bouncer-root .bz-line { position: absolute; left: 0; top: -1px; height: 2px; width: 100%; background: var(--line); }
@@ -1135,6 +1141,26 @@
   #bouncer-root .bz-run:hover { opacity: 1; }
   #bouncer-root .bz-run .bz-tt { left: 20px; right: 20px; top: auto; bottom: calc(100% - 12px); }
   #bouncer-root .bz-warn { color: var(--muted); }
+
+  /* setup */
+  #bouncer-root .bz-setup { padding: 26px 20px 20px; }
+  #bouncer-root .bz-setup-h { font-family: var(--display); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; font-size: 30px; line-height: 1.05; color: var(--paper); max-width: 640px; text-wrap: balance; }
+  #bouncer-root .bz-setup-s { color: var(--muted); font-size: 13px; margin: 12px 0 22px; max-width: 560px; line-height: 1.5; }
+  #bouncer-root .bz-setup-s b { color: var(--paper); font-weight: 600; }
+  #bouncer-root .bz-cards { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  #bouncer-root .bz-setup.wide .bz-cards { grid-template-columns: 1fr 1fr; gap: 12px; }
+  #bouncer-root .bz-card { display: grid; grid-template-columns: 22px 1fr; gap: 14px; align-items: start; text-align: left; padding: 16px 18px; border: 1px solid var(--line); border-radius: 4px; background: #182229; transition: border-color .12s, background .12s; }
+  #bouncer-root .bz-card:hover { border-color: var(--muted); }
+  #bouncer-root .bz-card.on { border-color: var(--paper); background: #1c2830; }
+  #bouncer-root .bz-card-check { width: 22px; height: 22px; border: 1.5px solid var(--muted); border-radius: 3px; position: relative; margin-top: 1px; }
+  #bouncer-root .bz-card.on .bz-card-check { background: var(--paper); border-color: var(--paper); }
+  #bouncer-root .bz-card.on .bz-card-check::after { content: ""; position: absolute; left: 7px; top: 2px; width: 6px; height: 12px; border: solid var(--ground); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
+  #bouncer-root .bz-card-main { display: grid; gap: 4px; min-width: 0; }
+  #bouncer-root .bz-card-t { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 700; font-size: 14px; color: var(--paper); }
+  #bouncer-root .bz-card-b { color: #cfd6da; font-size: 13px; line-height: 1.45; }
+  #bouncer-root .bz-card-n { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  #bouncer-root .bz-card-n.good { color: var(--ok); }
+  #bouncer-root .bz-card-n.warn { color: var(--ink); }
 
   /* results */
   #bouncer-root .bz-done { padding: 26px 20px 8px; }
@@ -1175,7 +1201,7 @@
     syncing: ['Syncing', 'WhatsApp is still loading your chats. Give it a moment.'],
     'inject-failed': ['Couldn\'t connect', 'Reload this tab and try again.'],
   };
-  const TAG_WORDS = { optout: ['Opted out', 'Opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], del: ['Deleted', 'Delete'] };
+  const TAG_WORDS = { optout: ['Opted out', 'Opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], archive: ['Archived', 'Archive'], del: ['Deleted', 'Delete'] };
   const CAT_LABEL = { promo: ['Promotional', 'hot'], guess: ['Looks promotional', 'hot'], txn: ['Alerts only', ''], api: ['', ''], smb: ['Small business', ''], unknown: ['Not in contacts', ''] };
 
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -1188,7 +1214,7 @@
     root = document.createElement('div');
     root.id = 'bouncer-root';
     root.innerHTML = `
-      <button class="bz-pill" data-act="toggle" title="Bouncer"><span class="bz-mark"></span>Bouncer<span class="bz-count" hidden></span></button>
+      <button class="bz-pill" data-act="toggle" title="Bouncer">${LOGO}Bouncer<span class="bz-count" hidden></span></button>
       <aside class="bz-panel" role="dialog" aria-label="Bouncer"></aside>`;
     document.body.appendChild(root);
     pill = root.querySelector('.bz-pill');
@@ -1219,7 +1245,18 @@
     return canSplit;
   }
 
-  function openPanel() { state.open = true; dockPanel(); render(); if (!state.scanned && !state.scanning) scan(); }
+  function openPanel() {
+    state.open = true;
+    if (!state.onboarded && !state.onboardingShown) { state.onboardingShown = true; state.view = 'setup'; state.expanded = true; }
+    dockPanel(); render();
+    if (!state.scanned && !state.scanning) scan();   // read-only, runs while they choose
+  }
+  function saveActions() {
+    state.history.actions = { ...state.actions };
+    state.history.onboarded = true;
+    state.onboarded = true;
+    saveHistory();
+  }
   function closePanel() { state.open = false; state.armed = false; state.view = 'list'; state.expanded = false; render(); }
   const findGroup = (key) => state.groups.find((g) => g.key === key);
 
@@ -1263,6 +1300,9 @@
       run();
     }
     else if (act === 'cancel') { state.cancel = true; render(); }
+    else if (act === 'opt') { state.actions[t.dataset.key] = !state.actions[t.dataset.key]; if (t.dataset.key === 'del' && state.actions.del) state.actions.archive = false; render(); }
+    else if (act === 'setup') { state.view = 'setup'; state.expanded = true; render(); }
+    else if (act === 'setup-done') { saveActions(); state.view = 'list'; state.expanded = false; state.armed = false; dockPanel(); render(); }
     else if (act === 'chart') { state.view = 'chart'; render(); }
     else if (act === 'chart-close') { state.view = 'list'; render(); }
     else if (act === 'expand') {
@@ -1274,10 +1314,9 @@
     else if (act === 'chart-card') downloadChartCard();
     else if (act === 'noop') { /* checkbox: handled by onChange */ }
     else if (act === 'open') openChat(t.dataset.key);
-    else if (act === 'opts') { state.showOpts = !state.showOpts; render(); }
     else if (act === 'filter') { state.filter = t.dataset.v === 'all' ? 'all' : 'promo'; state.armed = false; render(); }
     else if (act === 'period') { const d = Number(t.dataset.v); if (d !== state.days) { state.days = d; state.scanned = false; scan(); } }
-    else if (act === 'chip') { state.actions[t.dataset.key] = !state.actions[t.dataset.key]; render(); }
+    else if (act === 'chip') { state.actions[t.dataset.key] = !state.actions[t.dataset.key]; saveActions(); render(); }
     else if (act === 'expand') { const g = findGroup(t.dataset.key); if (g) { g.expanded = !g.expanded; render(); } }
     else if (act === 'all') { state.groups.forEach((g) => { if (g.kind === 'biz' && g.active.length && (state.filter === 'all' || g.promo)) g.checked = true; }); render(); }
     else if (act === 'none') { state.groups.forEach((g) => { g.checked = false; }); state.armed = false; render(); }
@@ -1311,18 +1350,21 @@
     const bodyEl = panel.querySelector('.bz-body');
     const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
     const wall = state.community && state.community.url;
-    const split = dockPanel();
+    const split = dockPanel() && state.view !== 'setup';
+    const setup = state.view === 'setup';
     const chart = !split && state.view === 'chart';
     const head = `
-      <div class="bz-head"><span class="bz-mark"></span><span class="bz-word">Bouncer</span>
+      <div class="bz-head">${LOGO}<span class="bz-word">Bouncer</span>
         <span style="margin-left:auto"></span>
-        ${chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Collapse ⇤' : 'Expand ⇥'}</button>`}
-        ${wall && !chart ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
+        ${setup ? (state.onboarded ? `<button class="bz-wall caps" data-act="setup-done">← Back</button>` : '') : chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Collapse ⇤' : 'Expand ⇥'}</button>`}
+        ${wall && !chart && !setup ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
         <button class="bz-x" data-act="close" aria-label="Close">×</button></div>`;
     const listCol = `<div class="bz-body">${state.results ? renderDone() : renderList()}</div>${renderFoot()}`;
-    panel.innerHTML = split
-      ? `${head}<div class="bz-split"><div class="bz-col">${listCol}</div><div class="bz-col dash"><div class="bz-body">${renderDashboard()}</div></div></div>`
-      : `${head}<div class="bz-body">${chart ? renderChart() : state.results ? renderDone() : renderList()}</div>${chart ? renderChartFoot() : renderFoot()}`;
+    panel.innerHTML = setup
+      ? `${head}<div class="bz-body">${renderSetup()}</div>${renderSetupFoot()}`
+      : split
+        ? `${head}<div class="bz-split"><div class="bz-col">${listCol}</div><div class="bz-col dash"><div class="bz-body">${renderDashboard()}</div></div></div>`
+        : `${head}<div class="bz-body">${chart ? renderChart() : state.results ? renderDone() : renderList()}</div>${chart ? renderChartFoot() : renderFoot()}`;
     const nb = panel.querySelector('.bz-body');
     if (nb && scrollTop) nb.scrollTop = scrollTop;
     if (state.running) { const el = panel.querySelector('.bz-row.active'); if (el) el.scrollIntoView({ block: 'nearest' }); }
@@ -1457,18 +1499,16 @@
     const risky = targets.filter((g) => !g.promo);
     const n = targets.reduce((s, g) => s + g.numbers.length, 0);
     const A = state.actions;
-    const parts = [A.optout && 'opt out', A.stop && 'STOP', A.report && 'report', A.block && 'block', A.del && 'delete'].filter(Boolean);
+    const parts = [A.optout && 'opt out', A.stop && 'STOP', A.report && 'report', A.block && 'block', A.archive && !A.del && 'archive', A.del && 'delete'].filter(Boolean);
     const what = parts.length ? parts.join(' · ') : 'No actions selected';
     let label = !targets.length ? 'Select a business' : targets.length === 1 ? `Bounce ${clip(targets[0].name, 22)}` : `Bounce ${targets.length} businesses`;
     if (state.armed) label = `Sure? Bounce ${targets.length === 1 ? clip(targets[0].name, 18) : `${targets.length} businesses`}`;
-    const chip = (key, l) => `<button class="bz-chip ${A[key] ? 'on' : ''}" data-act="chip" data-key="${key}"><span class="dot"></span>${l}</button>`;
     const hint = state.armed
       ? `${risky.length === 1 ? `<b>${esc(risky[0].name)}</b> doesn't` : `${risky.length} of these don't`} look promotional. Click again to bounce anyway.${A.del ? ' Deleted chats can\'t be recovered.' : ''}`
-      : `${esc(what)} · <button data-act="opts">${state.showOpts ? 'Hide' : 'Change'}</button>${A.del || A.report ? `<br><span class="bz-warn">${A.del ? 'Deleted chats can\'t be recovered' : ''}${A.del && A.report ? ', and ' : ''}${A.report ? 'reports can\'t be withdrawn' : ''}. Blocks can be undone afterwards.</span>` : ''}`;
+      : `${esc(what)} · <button data-act="setup">Change</button>${A.del || A.report ? `<br><span class="bz-warn">${A.del ? 'Deleted chats can\'t be recovered' : ''}${A.del && A.report ? ', and ' : ''}${A.report ? 'reports can\'t be withdrawn' : ''}. Blocks can be undone afterwards.</span>` : ''}`;
     return `<div class="bz-foot">
       <button class="bz-btn ${state.armed ? 'armed' : ''}" data-act="run" ${targets.length && parts.length ? '' : 'disabled'}>${esc(label)}${n > targets.length && !state.armed ? `<span class="n">${plural(n, 'number')}</span>` : ''}</button>
       <div class="bz-hint">${hint}</div>
-      ${state.showOpts && !state.armed ? `<div class="bz-opts">${chip('optout', 'Stop marketing')}${chip('stop', 'Send STOP')}${chip('report', 'Report')}${chip('block', 'Block')}${chip('del', 'Delete chat')}</div><div class="bz-hint" style="margin-top:8px">Stop marketing is WhatsApp's own opt-out for the whole business. Delete removes the chat on all your devices, for good.</div>` : ''}
     </div>`;
   }
 
@@ -1482,7 +1522,7 @@
     const doneNumbers = s.numbers - (s.cancelled || 0);
     const stats = [
       A.optout && !s.optoutDead ? `<b>${s.optout}</b> marketing stopped` : '', A.stop ? `<b>${s.stop}</b> STOP sent` : '',
-      A.report && !s.reportDead ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '', A.del ? `<b>${s.del}</b> ${s.del === 1 ? 'chat' : 'chats'} deleted` : '',
+      A.report && !s.reportDead ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '', A.archive && !A.del ? `<b>${s.archive || 0}</b> archived` : '', A.del ? `<b>${s.del}</b> ${s.del === 1 ? 'chat' : 'chats'} deleted` : '',
     ].filter(Boolean).join(' · ');
     const rs = state.reportStatus;
     const selN = bounced.filter((g) => state.reportSel[g.key]).length;
@@ -1559,6 +1599,37 @@
       <div class="bz-dash-top"><span class="caps" style="color:var(--muted);font-size:11px">Everything you've bounced</span><span class="sp"></span>${rows.length ? `<button class="bz-btn paper" data-act="chart-card">Save chart</button>` : ''}</div>
       ${renderChart()}
       ${wall ? `<div class="bz-dash-top" style="padding-top:4px"><span class="caps" style="color:var(--muted);font-size:11px">Wall of Shame, everyone</span><span class="sp"></span>${C && C.url ? `<a class="bz-link muted" href="${esc(C.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>${wall}` : ''}`;
+  }
+
+  const ACTION_CARDS = [
+    ['optout', 'Stop their marketing', "WhatsApp's own opt-out. Meta then refuses that business's marketing messages to you, whichever number they use.", 'Reversible on your phone', 'good'],
+    ['stop', 'Send STOP', "Taps the opt-out button on their last message, or types STOP. Tells the vendor's own system to drop you.", 'Sends one message', ''],
+    ['report', 'Report to WhatsApp', "Sends their last message to WhatsApp. Reports lower a number's rating until Meta throttles it.", "Can't be undone", 'warn'],
+    ['block', 'Block the number', 'That number can never message you again.', 'Reversible', 'good'],
+    ['archive', 'Archive the chat', 'Moves it out of your chat list. Comes back if they message you again.', 'Reversible', 'good'],
+    ['del', 'Delete the chat', 'Removes the chat on all your devices.', "Can't be undone", 'warn'],
+  ];
+  function renderSetup() {
+    const A = state.actions;
+    const wide = panel.offsetWidth > 700;
+    return `
+      <div class="bz-setup ${wide ? 'wide' : ''}">
+        <div class="bz-setup-h">What do you want to do with these messages?</div>
+        <div class="bz-setup-s">Bouncer does this to every business you tick. Pick what feels right; you can change it any time from <b>Change</b> under the Bounce button.</div>
+        <div class="bz-cards">
+          ${ACTION_CARDS.map(([key, title, body, note, cls]) => `
+            <button class="bz-card ${A[key] ? 'on' : ''}" data-act="opt" data-key="${key}" aria-pressed="${A[key] ? 'true' : 'false'}">
+              <span class="bz-card-check"></span>
+              <span class="bz-card-main"><span class="bz-card-t">${title}</span><span class="bz-card-b">${body}</span><span class="bz-card-n ${cls}">${note}</span></span>
+            </button>`).join('')}
+        </div>
+      </div>`;
+  }
+  function renderSetupFoot() {
+    const A = state.actions;
+    const n = Object.keys(A).filter((k) => A[k]).length;
+    return `<div class="bz-foot"><button class="bz-btn paper" data-act="setup-done" ${n ? '' : 'disabled'}>${n ? `Continue with ${n} ${n === 1 ? 'action' : 'actions'}` : 'Pick at least one'}</button>
+      <div class="bz-hint">${A.del ? "Deleted chats can't be recovered. " : ''}${A.report ? "Reports can't be withdrawn. " : ''}${!A.del && !A.report ? 'Everything here can be undone.' : ''}</div></div>`;
   }
 
   function renderChartFoot() {
