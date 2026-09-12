@@ -802,14 +802,14 @@
         // Native opt-out first: it is the one that sticks, and it must run before block.
         if (A.optout && optoutDead) { n.result.optout = 'skipped'; }
         else if (A.optout) {
-          label('stopping marketing');
+          label('opting out on WhatsApp');
           const r = await step(n, 'optout', 'opt-out', async () => { const v = await stopMarketing(n.id); if (v === 'already') n.result.optout = 'already'; return v; });
           if (r) { if (n.result.optout !== 'already') sum.optout++; }
           else { sum.failed++; if (/unavailable/.test((n.errors || {}).optout || '')) optoutDead = true; }
           await sleep(150);
         }
         if (A.stop && n === stopTarget) {
-          label('opting out');
+          label('sending STOP');
           if (await step(n, 'stop', 'STOP', () => sendStop(n.id), 20000)) { sum.stop++; stopsSent++; } else sum.failed++;
           await sleep(600 + Math.random() * 600);
         }
@@ -1199,7 +1199,7 @@
     syncing: ['Syncing', 'WhatsApp is still loading your chats. Give it a moment.'],
     'inject-failed': ['Couldn\'t connect', 'Reload this tab and try again.'],
   };
-  const TAG_WORDS = { optout: ['Opted out', 'Opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], archive: ['Archived', 'Archive'], del: ['Deleted', 'Delete'] };
+  const TAG_WORDS = { optout: ['WA opt-out', 'WA opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], archive: ['Archived', 'Archive'], del: ['Deleted', 'Delete'] };
   const CAT_LABEL = { promo: ['Promotional', 'hot'], guess: ['Looks promotional', 'hot'], txn: ['Alerts only', ''], api: ['', ''], smb: ['Small business', ''], unknown: ['Not in contacts', ''] };
 
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -1499,7 +1499,7 @@
     const risky = targets.filter((g) => !g.promo);
     const n = targets.reduce((s, g) => s + g.numbers.length, 0);
     const A = state.actions;
-    const parts = [A.optout && 'opt out', A.stop && 'STOP', A.report && 'report', A.block && 'block', A.archive && !A.del && 'archive', A.del && 'delete'].filter(Boolean);
+    const parts = [(A.optout || A.stop) && 'opt out', A.report && 'report', A.block && 'block', A.archive && !A.del && 'archive', A.del && 'delete'].filter(Boolean);
     const what = parts.length ? parts.join(' · ') : 'No actions selected';
     let label = !targets.length ? 'Select a business' : targets.length === 1 ? `Bounce ${clip(targets[0].name, 22)}` : `Bounce ${targets.length} businesses`;
     if (state.armed) label = `Sure? Bounce ${targets.length === 1 ? clip(targets[0].name, 18) : `${targets.length} businesses`}`;
@@ -1521,7 +1521,7 @@
     const otherFails = Math.max(0, s.failed - softFails);
     const doneNumbers = s.numbers - (s.cancelled || 0);
     const stats = [
-      A.optout && !s.optoutDead ? `<b>${s.optout}</b> marketing stopped` : '', A.stop ? `<b>${s.stop}</b> STOP sent` : '',
+      A.optout && !s.optoutDead ? `<b>${s.optout}</b> WhatsApp opt-out${s.optout === 1 ? '' : 's'}` : '', A.stop ? `<b>${s.stop}</b> STOP sent` : '',
       A.report && !s.reportDead ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '', A.archive && !A.del ? `<b>${s.archive || 0}</b> archived` : '', A.del ? `<b>${s.del}</b> ${s.del === 1 ? 'chat' : 'chats'} deleted` : '',
     ].filter(Boolean).join(' · ');
     const rs = state.reportStatus;
@@ -1534,7 +1534,7 @@
         <div class="bz-stats">${stats}</div>
       </div>
       ${s.cancelled ? `<div class="bz-tip">Stopped early. ${plural(s.cancelled, 'number')} not bounced.</div>` : ''}
-      ${s.optoutDead ? `<div class="bz-tip">WhatsApp's marketing opt-out isn't available on this build yet.</div>` : ''}
+      ${s.optoutDead ? `<div class="bz-tip">WhatsApp's own opt-out isn't available on this build yet, so opting out ran as STOP only.</div>` : ''}
       ${s.reportDead ? `<div class="bz-tip">Reporting didn't go through on this WhatsApp Web version. Everything else did.</div>` : ''}
       ${otherFails > 0 ? `<div class="bz-tip">${plural(otherFails, 'action')} didn't go through. See the marks below.</div>` : ''}
       <div class="bz-actions">
@@ -1613,7 +1613,7 @@
   };
   const icon = (k) => `<svg class="bz-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
   const CHOICES = [
-    ['unsub', 'Opt out', 'Tells WhatsApp and the business to stop marketing to you. Sends one STOP.', 'Reversible', 'good'],
+    ['unsub', 'Opt out', "Two at once: WhatsApp's own stop-marketing setting, and a STOP sent to the business.", 'Reversible', 'good'],
     ['report', 'Report', "Lowers the number's rating until Meta throttles it.", "Can't be undone", 'warn'],
     ['block', 'Block', 'The number can never message you again.', 'Reversible', 'good'],
     ['archive', 'Archive', 'Out of your list. Back if they write again.', 'Reversible', 'good'],

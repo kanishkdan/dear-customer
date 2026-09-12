@@ -36,7 +36,7 @@ Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content
 
 - Bouncer reads your chats and opens on **Promotional**: every business that sent you marketing in the period you pick (this week by default). Each row shows the message count, the last message, and in red how many different numbers that business has ever used on you. Rows are ranked by that count.
 - Promotional rows are ticked. Click a name to open the chat and check. Switch to **All** to see senders that only sent order updates, alerts or codes, small businesses on the WhatsApp Business app, and unknown numbers not in your contacts.
-- The first time you open it, Bouncer asks what you want to do with these messages and shows the six actions as cards with what each one does and whether it can be undone. The default is opt out, STOP, report, block and archive; delete is off. **Change** under the Bounce button brings that screen back.
+- The first time you open it, Bouncer asks what you want to do with these messages and shows the five choices as tiles with what each one does and whether it can be undone. Opt out is one choice that runs both opt-out mechanisms. The default is opt out, report, block and archive; delete is off. **Change** under the Bounce button brings that screen back.
 - Press **Bounce**. Progress shows per number, and a Stop button ends the run early. When it finishes you get a stamp, a count, a share card, and the option to add the businesses you bounced to the public Wall of Shame. Only the ones that were promotional to you are preselected, and you can tick "add automatically after every run".
 
 ## How it finds promotional senders
@@ -54,8 +54,8 @@ The word lists live in `src/keywords.js`: promotional phrases, transactional phr
 
 | Action | Who enforces it | Effect |
 | --- | --- | --- |
-| Stop marketing | WhatsApp, on the business account | The same request WhatsApp's "Stop offers and announcements" button sends. Meta then refuses that business's marketing templates to you, whichever number they use. Runs first. Availability depends on WhatsApp having rolled the control out to your account. |
-| Send STOP | The business's messaging vendor | Looks for an opt-out button on their latest template, such as "Disable all communication", "Unsubscribe" or "STOP", taps the strongest, waits for a bot follow-up and taps that too. Types the word STOP only when there is no button, because most vendors act on the button id, not typed text. Latest live number only, at most 30 per run. |
+| Opt out, part one | WhatsApp, on the business account | The same request WhatsApp's "Stop offers and announcements" button sends. Meta then refuses that business's marketing templates to you, whichever number they use. Runs first. Availability depends on WhatsApp having rolled the control out to your account. |
+| Opt out, part two | The business's messaging vendor | Looks for an opt-out button on their latest template, such as "Disable all communication", "Unsubscribe" or "STOP", taps the strongest, waits for a bot follow-up and taps that too. Types the word STOP only when there is no button, because most vendors act on the button id, not typed text. Latest live number only, at most 30 per run. |
 | Report | WhatsApp | Sends the latest message from that number to WhatsApp. Reports lower the number's quality rating until Meta throttles or bans it, which is why spammers rotate numbers. |
 | Block | WhatsApp | That number can never message you again. Undo from the results screen. |
 | Archive chat | Your WhatsApp | Moves the chat out of your list. It comes back if they message you again. On by default instead of delete. |
