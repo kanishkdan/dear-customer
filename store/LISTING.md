@@ -63,7 +63,22 @@ Requires a WhatsApp account linked to WhatsApp Web. Not affiliated with WhatsApp
 
 ## Review notes (for the reviewer box)
 
+This extension helps a WhatsApp user unsubscribe from businesses that message them. It does not send bulk messages and is not related to the WhatsApp marketing/spamware extension cluster removed in 2025. Its only outbound action is a single STOP reply per business, inside a conversation that business started, capped at 20 per run and 40 per day, and the user can disable it. Every other action (opt out, report, block, archive, delete) mirrors a control in WhatsApp's own interface and applies to the user's own chats.
+
 Testing requires a WhatsApp account linked to web.whatsapp.com. After linking, wait for the chat list to appear, then click the Bouncer pill at bottom-left or the toolbar icon. The panel lists business senders; nothing is sent or changed until the user presses Bounce. The extension automates actions the user could do by hand in WhatsApp Web (block, delete, report, reply, opt out). The bundled library wa-js is open source (Apache 2.0, github.com/wppconnect-team/wa-js) and is included unmodified.
+
+## The elephant: Google purged 131 WhatsApp Web extensions
+
+In October 2025 Google removed a cluster of 131 Chrome extensions that injected into WhatsApp Web to automate bulk outreach and dodge WhatsApp's anti-spam rules. Reviewers now pattern-match on "extension that injects into WhatsApp Web and automates things," which is literally what this is. Assume the first review is hostile and make the difference impossible to miss.
+
+The difference, stated plainly in the review notes:
+
+- Those extensions **send** messages to many recipients. Bouncer sends at most one reply per business, only into a conversation that business started, capped at 20 per run and 40 per day, and the user can turn even that off.
+- Those extensions exist to help businesses reach people. Bouncer exists to help a person get businesses to stop reaching them. It is the opposite direction.
+- Every other action it takes (opt out, report, block, archive, delete) is something WhatsApp's own UI offers, applied to the user's own chats.
+- No remote code, no server-side message queue, no contact list upload, no scheduling, no bulk send of any kind.
+
+If the first submission is rejected, do not argue the category. Resubmit with the Opt out action removed entirely, which makes the extension send zero messages and removes the only surface that resembles the banned cluster.
 
 ## Things that can get it rejected, and the answer
 
