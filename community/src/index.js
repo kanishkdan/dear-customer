@@ -30,7 +30,8 @@ export default {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
       if (url.pathname === '/report' && request.method === 'POST') return await report(request, env, ctx);
       if (url.pathname === '/list.json' && request.method === 'GET') return await cached(request, ctx, () => listJson(env));
-      if (url.pathname === '/' && request.method === 'GET') return await cached(request, ctx, () => page(env));
+      if (url.pathname === '/' && request.method === 'GET') return await cached(request, ctx, () => landingPage(env));
+      if ((url.pathname === '/wall' || url.pathname === '/wall/') && request.method === 'GET') return await cached(request, ctx, () => wallPage(env));
       if (url.pathname === '/privacy' && request.method === 'GET') return privacyPage(env);
       if (url.pathname === '/favicon.svg' || url.pathname === '/icon.svg') return new Response(ICON_SVG, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
       if (url.pathname === '/favicon.ico') return Response.redirect(url.origin + '/favicon.svg', 302);
@@ -86,7 +87,7 @@ async function purge(request, ctx) {
   const origin = new URL(request.url).origin;
   if (origin.endsWith('.workers.dev')) return;
   try { cache = caches.default; } catch (_) { return; }
-  ctx.waitUntil(Promise.all(['/', '/list.json'].map((p) => cache.delete(new Request(origin + p, { method: 'GET' })).catch(() => {}))));
+  ctx.waitUntil(Promise.all(['/', '/wall', '/list.json'].map((p) => cache.delete(new Request(origin + p, { method: 'GET' })).catch(() => {}))));
 }
 
 // ------------------------------------------------------------------ report
@@ -238,27 +239,186 @@ async function listJson(env) {
   return json(data);
 }
 
+// ------------------------------------------------------------------ shell
+const BASE_CSS = `
+  :root { color-scheme: dark; --ground:#0b141a; --surface:#111b21; --line:#223038; --paper:#e9edef;
+    --muted:#8696a0; --ink:#e0332b; --ok:#25d366;
+    --display:"Avenir Next Condensed","Helvetica Neue Condensed","Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+    --body:-apple-system,"SF Pro Text",Inter,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  *,*::before,*::after { box-sizing: border-box; }
+  body { margin:0; background:var(--ground); color:var(--paper); font:16px/1.6 var(--body); -webkit-font-smoothing:antialiased; }
+  a { color:var(--paper); text-decoration:none; }
+  .wrap { max-width:760px; margin:0 auto; padding:0 22px; }
+  .topbar { border-bottom:1px solid var(--line); }
+  .topbar .wrap { display:flex; align-items:center; gap:14px; height:62px; }
+  .brand { display:flex; align-items:center; gap:11px; font-family:var(--display); text-transform:uppercase; letter-spacing:.16em; font-weight:700; font-size:15px; }
+  .brand img { width:26px; height:26px; border-radius:7px; display:block; }
+  .nav { margin-left:auto; display:flex; gap:20px; font-size:13px; color:var(--muted); }
+  .nav a:hover { color:var(--paper); }
+  .nav a.on { color:var(--paper); }
+  footer { border-top:1px solid var(--line); margin-top:72px; padding:28px 0 56px; color:var(--muted); font-size:13px; line-height:1.7; }
+  footer a { color:var(--muted); text-decoration:underline; text-underline-offset:3px; text-decoration-color:var(--line); }
+  footer a:hover { color:var(--paper); }
+  @media (max-width:600px){
+    .brand { font-size:13px; letter-spacing:.1em; }
+    .brand img { width:22px; height:22px; }
+    .nav { gap:16px; font-size:12px; }
+    .nav a[href="/privacy"] { display:none; }
+    .wrap { padding:0 18px; }
+  }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:9px; height:48px; padding:0 22px; border-radius:4px;
+    background:var(--ink); color:#fff; font-family:var(--display); text-transform:uppercase; letter-spacing:.12em; font-weight:700; font-size:15px; }
+  .btn:hover { background:#f0453d; }
+  .btn.ghost { background:transparent; color:var(--paper); border:1px solid var(--line); }
+  .btn.ghost:hover { border-color:var(--muted); }
+  h2 { font-family:var(--display); text-transform:uppercase; letter-spacing:.1em; font-weight:700; font-size:13px; color:var(--muted); margin:0 0 18px; }
+`;
+
+const head = (title, desc, extraCss) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+<meta name="description" content="${esc(desc)}">
+<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>${BASE_CSS}${extraCss || ''}</style></head><body>`;
+
+const topbar = (here) => `<div class="topbar"><div class="wrap">
+  <a class="brand" href="/"><img src="/favicon.svg" alt="">Dear Customer</a>
+  <nav class="nav">
+    <a href="/wall" class="${here === 'wall' ? 'on' : ''}">Wall of Shame</a>
+    <a href="/privacy" class="${here === 'privacy' ? 'on' : ''}">Privacy</a>
+    <a href="${esc(REPO)}">GitHub</a>
+  </nav></div></div>`;
+
+const foot = () => `<footer><div class="wrap">
+  <p>Dear Customer is open source. <a href="${esc(REPO)}">Read the code</a>, or <a href="${esc(REPO)}/issues">open an issue</a>.
+  Not affiliated with WhatsApp or Meta. WhatsApp is a trademark of WhatsApp LLC.</p>
+  <p><a href="/privacy">Privacy</a> · <a href="/wall">Wall of Shame</a> · <a href="/list.json">list.json</a></p>
+</div></footer></body></html>`;
+
+let REPO = 'https://github.com/kanishkdan/dear-customer';
+
+// ----------------------------------------------------------------- landing
+const ACTIONS = [
+  ['M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3z|M10 19a2 2 0 0 0 4 0|M4 4l16 16', 'Opt out',
+   "WhatsApp's own stop-marketing setting, plus a STOP sent to the business. Two systems, one click."],
+  ['M5 21V4|M5 4h12l-2 3.5 2 3.5H5', 'Report',
+   "Sends their message to WhatsApp. Reports lower a number's rating until Meta throttles it."],
+  ['M6 6l12 12|', 'Block', 'That number can never message you again.'],
+  ['M3 4h18v4H3z|M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8|M10 12h4', 'Archive',
+   'Out of your chat list. It comes back if they write again.'],
+  ['M4 7h16|M9 7V4h6v3|M6 7l1 13h10l1-13|M10 11v6M14 11v6', 'Delete',
+   'Gone from every device. Off by default, because it cannot be undone.'],
+];
+const actionIcon = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths.split('|').filter(Boolean).map((d) => d === 'M6 6l12 12' ? `<circle cx="12" cy="12" r="8.5"/><path d="${d}"/>` : `<path d="${d}"/>`).join('')}</svg>`;
+
+async function landingPage(env) {
+  REPO = env.REPO_URL || REPO;
+  const store = env.STORE_URL || '';
+  let totals = { businesses: 0, numbers: 0, people: 0, min: 3 };
+  try { totals = await totalsRow(env); } catch (_) {}
+  const css = `
+  .hero { padding:78px 0 8px; }
+  .kicker { font-family:var(--display); text-transform:uppercase; letter-spacing:.16em; font-size:12px; color:var(--muted); margin-bottom:20px; }
+  .hero h1 { font-family:var(--display); font-weight:700; font-size:clamp(56px,12vw,104px); line-height:.92; letter-spacing:-.01em; margin:0; }
+  .hero h1 .no { color:var(--ink); }
+  .hero p.lead { font-size:19px; line-height:1.5; color:var(--paper); max-width:33em; margin:24px 0 0; }
+  .cta { display:flex; gap:12px; flex-wrap:wrap; margin:30px 0 0; align-items:center; }
+  .cta .note { font-size:13px; color:var(--muted); }
+  .thread { margin:52px 0 0; display:grid; gap:9px; }
+  .bub { max-width:81%; padding:12px 15px; border-radius:10px 10px 10px 3px; background:var(--surface); border:1px solid var(--line);
+    font-size:14.5px; line-height:1.45; color:#cfd6da; }
+  .bub b { color:var(--paper); font-weight:600; }
+  .bub .who { display:block; font-size:11px; font-family:var(--display); text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:5px; }
+  .bub.me { max-width:none; width:max-content; border-radius:10px 10px 3px 10px; background:#0b2a20; border-color:#14503a; color:#d7f5e6; font-size:16px; font-weight:600; }
+  .reply { display:flex; align-items:center; justify-content:flex-end; gap:20px; margin-top:5px; }
+  .stamp { transform:rotate(-8deg); border:3px solid var(--ink); border-radius:5px; color:var(--ink);
+    font-family:var(--display); text-transform:uppercase; letter-spacing:.2em; font-weight:700; font-size:22px; padding:5px 13px 4px; }
+  .counts { display:flex; gap:30px; flex-wrap:wrap; margin:64px 0 0; padding:20px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .counts div b { font-family:var(--display); font-weight:700; font-size:30px; display:block; line-height:1; font-variant-numeric:tabular-nums; }
+  .counts div span { font-size:12px; color:var(--muted); font-family:var(--display); text-transform:uppercase; letter-spacing:.1em; }
+  section { margin-top:64px; }
+  .acts { display:grid; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .act { background:var(--ground); padding:18px 20px; display:grid; grid-template-columns:26px 1fr; gap:16px; align-items:start; }
+  .act svg { width:22px; height:22px; color:var(--muted); margin-top:2px; }
+  .act h3 { margin:0 0 3px; font-size:15px; font-weight:600; }
+  .act p { margin:0; font-size:14px; color:var(--muted); line-height:1.5; }
+  .points { display:grid; gap:14px; }
+  .point { display:grid; grid-template-columns:20px 1fr; gap:14px; font-size:15px; line-height:1.55; color:#cfd6da; }
+  .point i { font-family:var(--display); font-weight:700; color:var(--ink); font-style:normal; font-size:14px; padding-top:2px; }
+  .point b { color:var(--paper); font-weight:600; }
+  @media (max-width:560px){ .stamp{ font-size:17px; letter-spacing:.14em; } .reply{ gap:12px; } .counts{ gap:22px; } }
+  `;
+  const b = (who, text) => `<div class="bub"><span class="who">${esc(who)}</span>${text}</div>`;
+  return new Response(head('Dear Customer — WhatsApp spam, out in one click',
+    'A Chrome extension that finds every business spamming your WhatsApp and opts out, reports, blocks and archives them in one click.', css)
+    + topbar('home') + `
+<div class="wrap">
+  <div class="hero">
+    <div class="kicker">Chrome extension for WhatsApp Web</div>
+    <h1>Dear&nbsp;Customer.<br><span class="no">No.</span></h1>
+    <p class="lead">Blocking a WhatsApp spammer does nothing. They own a bag of numbers and next week they are back from a new one. This finds every business that has been messaging you, shows how many numbers each has burned, and throws them all out at once.</p>
+    <div class="cta">
+      ${store ? `<a class="btn" href="${esc(store)}">Add to Chrome</a>` : `<a class="btn" href="${esc(REPO)}">Get it on GitHub</a>`}
+      <a class="btn ghost" href="/wall">See the Wall of Shame</a>
+      ${store ? '' : '<span class="note">Chrome Web Store listing in review.</span>'}
+    </div>
+    <div class="thread">
+      ${b('Finance Buddha', '<b>Dear Customer,</b> an exclusive loan offer has been unlocked for you. Apply now, T&amp;C apply.')}
+      ${b('KreditBee', '<b>Dear Customer,</b> your pre-approved credit line of ₹2,00,000 is waiting. Zero fee, lifetime free.')}
+      ${b('Finance Buddha', '<b>Dear Customer,</b> an exclusive loan offer has been unlocked for you. Apply now, T&amp;C apply.')}
+      <div class="reply"><span class="stamp">Bounced</span><span class="bub me">No.</span></div>
+    </div>
+    ${totals.businesses ? `<div class="counts">
+      <div><b>${totals.businesses}</b><span>on the wall</span></div>
+      <div><b>${totals.numbers}</b><span>numbers burned</span></div>
+      <div><b>${totals.people}</b><span>${totals.people === 1 ? 'person' : 'people'} reporting</span></div>
+    </div>` : ''}
+  </div>
+
+  <section>
+    <h2>What one click does</h2>
+    <div class="acts">
+      ${ACTIONS.map(([paths, name, body]) => `<div class="act">${actionIcon(paths)}<div><h3>${name}</h3><p>${body}</p></div></div>`).join('')}
+    </div>
+  </section>
+
+  <section>
+    <h2>How it knows what is an ad</h2>
+    <div class="points">
+      <div class="point"><i>01</i><div><b>WhatsApp's own label.</b> Every template message carries the category the business declared to Meta: marketing, utility or authentication.</div></div>
+      <div class="point"><i>02</i><div><b>The words, which outrank the label.</b> Businesses in India file ad templates as "utility" to dodge marketing pricing, so a loan pitch labelled utility is still a loan pitch. Order updates, OTPs and bills stay out of the way.</div></div>
+      <div class="point"><i>03</i><div><b>You, always.</b> Nothing is touched until you tick it. Click any row to read the conversation first, and ignore a business to never see it again.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it will not do</h2>
+    <div class="points">
+      <div class="point"><i>—</i><div><b>Send your chats anywhere.</b> Everything runs in your browser. The only thing that ever leaves is a business name and a hashed number, and only when you press Add to the Wall of Shame.</div></div>
+      <div class="point"><i>—</i><div><b>Message strangers.</b> Its one outbound action is a single STOP reply, inside a conversation that business started, capped and switchable off.</div></div>
+      <div class="point"><i>—</i><div><b>Name a business on one report.</b> The Wall needs ${totals.min} different people before anyone is listed.</div></div>
+    </div>
+  </section>
+</div>` + foot(), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
 // ----------------------------------------------------------------- privacy
 function privacyPage(env) {
   const repo = env.REPO_URL || '#';
-  const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dear Customer · Privacy</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #0b141a; color: #e9edef; font: 16px/1.6 -apple-system, "SF Pro Display", Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; }
-  .bar { height: 8px; background: #ff3b30; }
-  h1 { font-size: 30px; font-weight: 900; margin: 20px 0 6px; }
-  h2 { font-size: 18px; margin: 28px 0 8px; }
-  p, li { color: #cfd6da; }
-  a { color: #00a884; }
-  .muted { color: #8696a0; font-size: 14px; }
-</style></head>
-<body><div class="bar"></div><div class="wrap">
+  const html = head('Dear Customer · Privacy', 'What Dear Customer stores, what it sends, and when.', `
+  .wrap { padding-top: 44px; padding-bottom: 20px; max-width: 700px; }
+  h1 { font-family: var(--display); text-transform: uppercase; letter-spacing: .04em; font-size: 38px; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-size: 12px; color: var(--muted); margin: 38px 0 10px; }
+  p, li { color: #cfd6da; font-size: 15.5px; }
+  li { margin-bottom: 6px; }
+  b { color: var(--paper); font-weight: 600; }
+  a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+  .muted { color: var(--muted); font-size: 13px; }
+`) + topbar('privacy') + `<div class="wrap">
   <h1>Privacy</h1>
-  <p class="muted">Dear Customer, a Chrome extension for WhatsApp Web, and this website. Last updated 12 September 2026.</p>
+  <p class="muted">The Chrome extension and this website. Last updated 13 September 2026.</p>
 
   <h2>The short version</h2>
   <p>Dear Customer runs inside your browser. It reads your WhatsApp Web chats locally to find business senders, and it acts on them locally through WhatsApp Web itself. Nothing about your chats leaves your computer unless you press <b>Add to the Wall of Shame</b>.</p>
@@ -292,12 +452,12 @@ function privacyPage(env) {
 
   <h2>Contact</h2>
   <p>Questions go to the <a href="${esc(repo)}/issues">issue tracker</a>.</p>
-</div></body></html>`;
+</div>` + foot();
   return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' } });
 }
 
 // -------------------------------------------------------------------- page
-async function page(env) {
+async function wallPage(env) {
   const data = await listData(env);
   const repo = env.REPO_URL || '#';
   const fmtAgo = (ts) => {
@@ -337,56 +497,49 @@ async function page(env) {
       </tr>`).join('')
     : `<tr><td colspan="5" class="empty">Nothing listed yet.${data.totals.pending ? ` ${data.totals.pending} ${data.totals.pending === 1 ? 'business has' : 'businesses have'} been reported but ${data.totals.pending === 1 ? 'has' : 'have'} not reached ${data.totals.min} people yet.` : ' Be the first to bounce someone.'}</td></tr>`;
 
-  const html = `<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dear Customer · Wall of Shame</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<meta name="description" content="Businesses that spam Indian WhatsApp, ranked by how many people bounced them and how many numbers they burned.">
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #0b141a; color: #e9edef; font: 15px/1.5 -apple-system, "SF Pro Display", Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
-  .bar { height: 8px; background: #ff3b30; }
-  h1 { font-size: 34px; font-weight: 900; letter-spacing: -.01em; margin: 24px 0 6px; display: flex; align-items: center; gap: 12px; }
-  h1 .dot { width: 38px; height: 38px; display: inline-block; background: url(/favicon.svg) center/contain no-repeat; border-radius: 9px; }
-  .tagline { font-size: 15px; color: #8696a0; margin: -2px 0 18px; letter-spacing: .02em; }
-  .sub { color: #8696a0; margin: 0 0 28px; max-width: 640px; }
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
-  .stat { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px; }
-  .stat .n { font-size: 30px; font-weight: 900; line-height: 1; color: #e9edef; }
-  .stat .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; margin-top: 6px; }
+  const html = head('Dear Customer · Wall of Shame',
+    'Businesses that spam WhatsApp, ranked by how many people bounced them for promotions and how many numbers they burned.', `
+  .wrap { padding-top: 44px; padding-bottom: 20px; max-width: 880px; }
+  h1 { font-family: var(--display); text-transform: uppercase; letter-spacing: .04em; font-size: 40px; font-weight: 700; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 30px; max-width: 60ch; font-size: 15px; }
+  .sub b { color: var(--paper); font-weight: 600; }
+  .sub a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .stat .n { font-family: var(--display); font-size: 32px; font-weight: 700; line-height: 1; color: var(--paper); font-variant-numeric: tabular-nums; }
+  .stat .l { font-family: var(--display); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 7px; }
   .stat .spark { display: block; width: 100%; height: 28px; margin-top: 10px; }
-  .activity { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 16px 10px; margin-bottom: 28px; }
-  .activity .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; margin-bottom: 8px; display: flex; justify-content: space-between; }
-  .activity .cols { display: flex; align-items: flex-end; gap: 3px; height: 96px; border-bottom: 1px solid #2a3942; }
-  .activity .col { flex: 1; min-width: 0; background: #e0332b; border-radius: 3px 3px 0 0; }
-  .activity .col.zero { background: #1f2c34; height: 2px !important; }
-  .activity .axis { display: flex; justify-content: space-between; color: #8696a0; font-size: 11px; margin-top: 8px; font-variant-numeric: tabular-nums; }
-  table { width: 100%; border-collapse: collapse; background: #111b21; border: 1px solid #2a3942; border-radius: 12px; overflow: hidden; }
-  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #1f2c34; }
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8696a0; font-weight: 700; background: #182229; }
+  .activity { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px 12px; margin-bottom: 24px; }
+  .activity .l { font-family: var(--display); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .activity .cols { display: flex; align-items: flex-end; gap: 3px; height: 92px; border-bottom: 1px solid var(--line); }
+  .activity .col { flex: 1; min-width: 0; background: var(--ink); border-radius: 3px 3px 0 0; }
+  .activity .col.zero { background: #1a2730; height: 2px !important; }
+  .activity .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); }
+  th, td { padding: 13px 15px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { font-family: var(--display); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; background: #0e171d; white-space: nowrap; }
   tr:last-child td { border-bottom: 0; }
-  td.rank { color: #8696a0; font-weight: 800; width: 44px; }
-  td.name { font-weight: 700; }
+  td.rank { font-family: var(--display); color: var(--muted); font-weight: 700; width: 46px; }
+  td.name { font-weight: 600; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   th.num { text-align: right; }
-  td.burned { color: #ff3b30; font-weight: 900; }
-  td.people { color: #00a884; font-weight: 800; }
-  .muted { color: #8696a0; }
-  .tag { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 2px 6px; border-radius: 4px; background: rgba(255,59,48,.18); color: #ff6b62; vertical-align: middle; }
-  .empty { color: #8696a0; text-align: center; padding: 40px 16px !important; }
-  .cta { margin: 28px 0; padding: 18px 20px; background: #111b21; border: 1px solid #2a3942; border-radius: 12px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-  .cta a.btn { background: #ff3b30; color: #fff; text-decoration: none; font-weight: 800; padding: 10px 16px; border-radius: 10px; }
-  a { color: #00a884; }
-  footer { color: #8696a0; font-size: 13px; margin-top: 40px; line-height: 1.6; }
-  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 26px; } th:nth-child(5), td:nth-child(5) { display: none; } }
-</style></head>
-<body><div class="bar"></div><div class="wrap">
-  <h1><span class="dot"></span>Wall of Shame</h1>
-  <p class="tagline">Dear Customer. No.</p>
-  <p class="sub">Businesses ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is only named here once ${data.totals.min} different people have bounced it</b>, so no one is listed on one person's say-so. A business here sent promotions to the people who bounced it; it may send alerts others want, and Dear Customer never ticks a business for you because of this list. Reported anonymously by people running <a href="${esc(repo)}">Dear Customer</a>, a Chrome extension for WhatsApp Web that finds every promotional sender in your chats and opts out, STOPs, reports, blocks and deletes them in one click.</p>
+  td.burned { font-family: var(--display); font-size: 19px; color: var(--ink); font-weight: 700; }
+  td.people { font-family: var(--display); font-size: 19px; color: var(--ok); font-weight: 700; }
+  .muted { color: var(--muted); }
+  .tag { font-family: var(--display); font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 2px 6px; border-radius: 3px; background: rgba(224,51,43,.16); color: #ff6b62; vertical-align: middle; }
+  .empty { color: var(--muted); text-align: center; padding: 44px 16px !important; }
+  .cta { margin: 26px 0 0; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+  .cta b { color: var(--paper); font-weight: 600; }
+  .cta .btn { height: 40px; padding: 0 18px; font-size: 13px; }
+  .smallprint { color: var(--muted); font-size: 13px; margin-top: 26px; line-height: 1.65; }
+  .smallprint b { color: #aebac1; font-weight: 600; }
+  .smallprint a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 30px; } }
+`) + topbar('wall')
+ + `<div class="wrap">
+  <h1>Wall of Shame</h1>
+  <p class="sub">Ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is named here only once ${data.totals.min} different people have bounced it</b>, so nobody is listed on one person's say-so. Reported anonymously by people running <a href="/">Dear Customer</a>.</p>
   <div class="stats">
     <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Listed</div>${S ? spark(S.businesses.cumulative) : ''}</div>
     <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div>${S ? spark(S.numbers.cumulative) : ''}</div>
@@ -394,20 +547,20 @@ async function page(env) {
     <div class="stat"><div class="n">${data.totals.pending}</div><div class="l">Below ${data.totals.min}, not shown</div>${S ? spark(S.reports.cumulative) : ''}</div>
   </div>
   ${S ? `<div class="activity"><div class="l"><span>Reports per day</span><span>last 30 days</span></div>${columns(S.days, S.reports.daily)}</div>` : ''}
-  <table>
+  <div class="tbl"><table>
     <thead><tr><th>#</th><th>Business</th><th class="num">People bounced for promos</th><th class="num">Numbers burned</th><th class="num">Last seen</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-  </table>
+  </table></div>
   <div class="cta">
     <div style="flex:1;min-width:240px"><b>Add yours.</b> Install Dear Customer on WhatsApp Web, bounce the businesses spamming you, and press "Add to the Wall of Shame".</div>
-    <a class="btn" href="${esc(repo)}">Get it</a>
+    <a class="btn" href="/">How it works</a>
   </div>
-  <footer>
+  <div class="smallprint">
     <p><b>What's stored.</b> The business name exactly as WhatsApp shows it, a SHA-256 hash of each number it used, whether it's an official Business Platform account, the country code, and a random id per browser so one person can't be counted twice. No phone numbers, no message content, no identity of the person reporting.</p>
     <p><b>Counting.</b> The main count is people who bounced the business for promotional messages, and it has to reach ${data.totals.min} before the business appears at all. A grey +N is people who bounced it for something else, such as alerts they didn't want. Only the promotional count ranks. Reports below the threshold are stored but never published, and the numbers they used are not published either.</p>
     <p><b>Listed and think it's wrong?</b> <a href="${esc(repo)}/issues/new?title=Removal%20request">Open a removal request</a>. Entries come from users, not from us.</p>
     <p><a href="/privacy">Privacy</a> · <a href="${esc(repo)}">Source on GitHub</a> · <code>GET /list.json</code> is public if you want the data. Not affiliated with WhatsApp or Meta.</p>
-  </footer>
-</div></body></html>`;
+  </div>
+</div>` + foot();
   return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }

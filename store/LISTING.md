@@ -38,7 +38,7 @@ Requires a WhatsApp account linked to WhatsApp Web. Not affiliated with WhatsApp
 1. The list open on Promotional with a few rows ticked.
 2. Mid-run, progress in the footer.
 3. The results screen with the stamp.
-4. The Wall of Shame page.
+4. The Wall of Shame page at dearcustomer.kanishkdan.com/wall.
 
 **Small promo tile (440×280):** `store/promo-small-440x280.png`
 **Marquee (1400×560, optional):** `store/promo-marquee-1400x560.png`

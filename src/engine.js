@@ -1419,7 +1419,7 @@
       <div class="bz-head">${LOGO}<span class="bz-word">Dear Customer</span>
         <span style="margin-left:auto"></span>
         ${setup ? (state.onboarded ? `<button class="bz-wall caps" data-act="setup-done">← Back</button>` : '') : chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Collapse ⇤' : 'Expand ⇥'}</button>`}
-        ${wall && !chart && !setup ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
+        ${wall && !chart && !setup ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}/wall" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
         <button class="bz-x" data-act="close" aria-label="Close">×</button></div>`;
     const listCol = `<div class="bz-body">${state.results ? renderDone() : renderList()}</div>${renderFoot()}`;
     panel.innerHTML = setup
@@ -1614,7 +1614,7 @@
       ${otherFails > 0 ? `<div class="bz-tip">${plural(otherFails, 'action')} didn't go through. See the marks below.</div>` : ''}
       <div class="bz-actions">
         ${rs && rs.ok
-          ? `<a class="bz-btn paper" href="${esc(rs.url || '#')}" target="_blank" rel="noopener">Added · Open the Wall of Shame ↗</a>`
+          ? `<a class="bz-btn paper" href="${esc(rs.url ? rs.url + '/wall' : '#')}" target="_blank" rel="noopener">Added · Open the Wall of Shame ↗</a>`
           : `<button class="bz-btn paper" data-act="report" ${selN && rs !== 'sending' ? '' : 'disabled'}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button>`}
         <button class="bz-btn ghost" data-act="card">Save share card</button>
       </div>
@@ -1673,7 +1673,7 @@
     return `
       <div class="bz-dash-top"><span class="caps" style="color:var(--muted);font-size:11px">Everything you've bounced</span><span class="sp"></span>${rows.length ? `<button class="bz-btn paper" data-act="chart-card">Save chart</button>` : ''}</div>
       ${renderChart()}
-      ${wall ? `<div class="bz-dash-top" style="padding-top:4px"><span class="caps" style="color:var(--muted);font-size:11px">Wall of Shame, everyone</span><span class="sp"></span>${C && C.url ? `<a class="bz-link muted" href="${esc(C.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>${wall}` : ''}`;
+      ${wall ? `<div class="bz-dash-top" style="padding-top:4px"><span class="caps" style="color:var(--muted);font-size:11px">Wall of Shame, everyone</span><span class="sp"></span>${C && C.url ? `<a class="bz-link muted" href="${esc(C.url + '/wall')}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>${wall}` : ''}`;
   }
 
   // One choice per outcome. "Opt out" runs both opt-out flows: WhatsApp's own
