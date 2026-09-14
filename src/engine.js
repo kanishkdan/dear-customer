@@ -7,7 +7,8 @@
  * marketing-only actions; numbers that only send updates are left alone.
  *
  * Nothing leaves the browser except WhatsApp's own traffic and, only when the
- * user presses "Add to the Wall of Shame", business names plus hashed numbers.
+ * user chooses to add to the Wall of Shame (per run, or after every bounce when the
+ * setup option is left on), business names plus hashed numbers.
  */
 (() => {
   'use strict';
@@ -35,7 +36,7 @@
     running: false,
     progress: null,
     results: null,
-    history: { seen: {}, runs: [] },
+    history: { seen: {}, runs: [], autoReport: true },
     historyLoaded: false,
     scanStats: null,
     scanProgress: null,
@@ -66,10 +67,10 @@
     if (ev.source !== window || !ev.data || !ev.data.__bouncer || ev.data.dir !== 'to-page') return;
     const { type, payload } = ev.data;
     if (type === 'history') {
-      const pre = { onboarded: state.onboarded, actions: { ...state.actions } };
+      const pre = { onboarded: state.onboarded, actions: { ...state.actions }, introduced: !!state.history.introduced };
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, ignored: payload.ignored || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0, reportDay: payload.reportDay || null, reportCount: payload.reportCount || 0 };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, ignored: payload.ignored || {}, autoReport: payload.autoReport == null ? !payload.onboarded : !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0, reportDay: payload.reportDay || null, reportCount: payload.reportCount || 0, introduced: !!payload.introduced };
         if (payload.actions && typeof payload.actions === 'object') state.actions = { ...state.actions, ...payload.actions };
         state.onboarded = !!payload.onboarded;
       }
@@ -77,6 +78,8 @@
       delete state.actions.del;
       if (state.history.actions) delete state.history.actions.del;
       // Answered the setup question before stored history arrived: keep that answer.
+      // Opened the panel before stored history arrived: the intro stays dismissed.
+      if (pre.introduced && !state.history.introduced) { state.history.introduced = true; deferredSave = true; }
       if (pre.onboarded && !state.onboarded) {
         state.onboarded = true; state.history.onboarded = true;
         state.actions = { ...pre.actions }; state.history.actions = { ...pre.actions };
@@ -1172,6 +1175,22 @@
   #bouncer-root .bz-pill.wide .bz-logo { width: 20px; height: 20px; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
   #bouncer-root .bz-pill.wide .bz-pill-t { display: inline; }
   #bouncer-root .bz-pill.wide .bz-count { position: static; min-width: 0; height: auto; padding: 0; border-radius: 0; background: none; color: var(--ink); font-size: 15px; line-height: 1; }
+  /* first run: the launcher pops in with a pulsing ring and a callout beside it, until the first open */
+  #bouncer-root .bz-pill.enter { animation: bz-pop .55s cubic-bezier(.2,.9,.3,1.35) both; }
+  #bouncer-root .bz-pill.hello::after { content: ''; position: absolute; inset: -3px; border-radius: 15px; border: 2px solid var(--ink); animation: bz-ring 1.8s ease-out infinite; pointer-events: none; }
+  #bouncer-root .bz-pill.wide.hello::after { border-radius: 5px; }
+  #bouncer-root .bz-hello { position: fixed; z-index: 3; width: 236px; padding: 10px 30px 10px 12px; border-radius: 6px; background: var(--ground); color: var(--paper); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0,0,0,.5); font-size: 12.5px; line-height: 1.4; cursor: pointer; transform: translateY(50%); animation: bz-slide .4s .5s ease-out both; }
+  #bouncer-root .bz-hello b { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 700; font-size: 12px; margin-bottom: 3px; }
+  #bouncer-root .bz-hello span { color: var(--muted); }
+  #bouncer-root .bz-hello::before { content: ''; position: absolute; left: -6px; top: 50%; width: 10px; height: 10px; margin-top: -5px; background: var(--ground); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
+  #bouncer-root .bz-hello.above { transform: none; animation-name: bz-rise; }
+  #bouncer-root .bz-hello.above::before { left: 22px; top: auto; bottom: -6px; margin: 0; transform: rotate(-45deg); }
+  #bouncer-root .bz-hello-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 16px; line-height: 22px; text-align: center; cursor: pointer; }
+  #bouncer-root .bz-hello-x:hover { color: var(--paper); background: rgba(255,255,255,.06); }
+  @keyframes bz-pop { from { transform: scale(.3); opacity: 0; } 65% { transform: scale(1.12); opacity: 1; } to { transform: scale(1); opacity: 1; } }
+  @keyframes bz-ring { from { transform: scale(.92); opacity: .9; } to { transform: scale(1.5); opacity: 0; } }
+  @keyframes bz-slide { from { opacity: 0; transform: translate(-8px, 50%); } to { opacity: 1; transform: translate(0, 50%); } }
+  @keyframes bz-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   #bouncer-root .bz-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); flex: none; }
   #bouncer-root .bz-logo { width: 22px; height: 22px; flex: none; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
 
@@ -1298,6 +1317,18 @@
   #bouncer-root .bz-wall-title { font-size: 13px; color: var(--paper); font-weight: 600; }
   #bouncer-root .bz-wall-buttons { display: flex; gap: 16px; margin: 10px 0; }
   #bouncer-root .bz-wall-contribute .bz-auto { margin-top: 12px; font-size: 12px; }
+  #bouncer-root .bz-wall-buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  #bouncer-root .bz-wall-buttons .bz-btn { height: 42px; font-size: 13px; }
+  #bouncer-root .bz-wall-buttons .bz-link.muted { align-self: flex-start; }
+  #bouncer-root .bz-wall-opt { display: flex; gap: 12px; align-items: flex-start; margin: 16px 0 0; padding: 14px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); transition: border-color .12s; }
+  #bouncer-root .bz-wall-opt.on { border-color: rgba(233,237,239,.35); }
+  #bouncer-root .bz-wall-opt:hover { border-color: var(--muted); }
+  #bouncer-root .bz-wall-opt .bz-check { margin: 2px 0 0; width: 16px; height: 16px; flex: none; }
+  #bouncer-root .bz-wall-opt .bz-check:checked { background: var(--paper); border-color: var(--paper); }
+  #bouncer-root .bz-wall-opt .bz-check:checked::after { border-color: var(--ground); left: 4px; top: 1px; width: 4px; height: 8px; }
+  #bouncer-root .bz-wall-opt b { display: block; color: var(--paper); font-weight: 600; margin-bottom: 3px; }
+  #bouncer-root .bz-wall-opt small { display: block; font-size: 12px; line-height: 1.45; }
+  #bouncer-root .bz-wall-opt a { color: var(--paper); text-decoration: underline; }
   #bouncer-root .bz-wall-contribute .bz-note { margin: 10px 0 0; padding: 8px 10px; }
   #bouncer-root .bz-results-head { padding: 18px 20px 12px; }
   #bouncer-root .bz-undo { font-size: 11px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
@@ -1438,6 +1469,7 @@
     root.id = 'bouncer-root';
     root.innerHTML = `
       <button class="bz-pill" data-act="toggle" title="Dear Customer">${LOGO}<span class="bz-pill-t">Dear Customer</span><span class="bz-count" hidden></span></button>
+      <div class="bz-hello" data-act="toggle" hidden></div>
       <aside class="bz-panel" role="dialog" aria-label="Dear Customer"></aside>`;
     document.body.appendChild(root);
     pill = root.querySelector('.bz-pill');
@@ -1461,7 +1493,12 @@
     try { const pane = document.getElementById('pane-side'); if (pane) railW = Math.round(pane.getBoundingClientRect().left); } catch (_) {}
     const rail = railW >= 48 && railW <= 96;
     pill.classList.toggle('wide', !rail);
-    if (!rail) { pill.style.left = ''; pill.style.bottom = ''; return; }
+    const hello = root.querySelector('.bz-hello');
+    if (!rail) {
+      pill.style.left = ''; pill.style.bottom = '';
+      if (hello) { hello.classList.add('above'); hello.style.left = '16px'; hello.style.bottom = '66px'; }
+      return;
+    }
     const size = 44, cx = Math.round(railW / 2);
     const busy = (y) => { try { return document.elementsFromPoint(cx, y).some((el) => !root.contains(el) && el.closest('button, [role="button"], a, img')); } catch (_) { return false; } };
     let bottom = 120;
@@ -1472,6 +1509,28 @@
     }
     pill.style.left = Math.round((railW - size) / 2) + 'px';
     pill.style.bottom = bottom + 'px';
+    if (hello) { hello.classList.remove('above'); hello.style.left = (railW + 10) + 'px'; hello.style.bottom = (bottom + size / 2) + 'px'; }
+  }
+
+  // Until the first open, the launcher pops into place with a pulsing ring and a short
+  // callout beside it, so nobody has to hunt for it. People upgrading from the corner
+  // pill are told it moved. Gone for good after the first open, or with its ×.
+  let pillEntered = false;
+  function renderHello(n) {
+    const hello = root.querySelector('.bz-hello');
+    if (!hello) return;
+    const show = !pill.hidden && state.historyLoaded && !state.history.introduced && status() === 'ready';
+    hello.hidden = !show;
+    pill.classList.toggle('hello', show);
+    if (!show) return;
+    if (!pillEntered) { pillEntered = true; pill.classList.add('enter'); }
+    const returning = !!state.history.onboarded || (state.history.runs || []).length > 0;
+    const head = returning ? 'Moved: it lives here now' : 'Dear Customer lives here';
+    const body = state.scanned && n ? `${n} ${bizWord(n)} sent you promotions ${periodWord()}. Click to review them.` : 'Click to find the businesses spamming you.';
+    const key = `${head}|${body}`;
+    if (hello.dataset.key === key) return;
+    hello.dataset.key = key;
+    hello.innerHTML = `<button class="bz-hello-x" data-act="hello-off" aria-label="Dismiss">×</button><b>${esc(head)}</b><span>${esc(body)}</span>`;
   }
 
   // Size and place the sheet over WhatsApp's chat-list column. Expanded, it takes
@@ -1496,6 +1555,7 @@
 
   function openPanel() {
     state.open = true;
+    if (!state.history.introduced) { state.history.introduced = true; saveHistory(); }
     if (!state.onboarded) state.view = 'setup';
     dockPanel(); render(true);
     if (!state.scanned && !state.scanning) scan();   // read-only, runs while they choose
@@ -1540,6 +1600,7 @@
     const act = t.dataset.act;
     if (state.running && !['close', 'toggle', 'cancel', 'expand', 'expand-row', 'open', 'noop'].includes(act)) return;
     if (act === 'toggle') { if (state.open) closePanel(); else openPanel(); }
+    else if (act === 'hello-off') { state.history.introduced = true; saveHistory(); render(); }
     else if (act === 'close') closePanel();
     else if (act === 'scan') scan();
     else if (act === 'run') {
@@ -1618,6 +1679,7 @@
     const countEl = pill.querySelector('.bz-count');
     if (state.scanned && activeBiz.length) { countEl.textContent = String(activeBiz.length); countEl.hidden = false; }
     else countEl.hidden = true;
+    renderHello(activeBiz.length);
     placePill();
     panel.classList.toggle('open', state.open);
     if (!state.open) return;
@@ -1881,7 +1943,7 @@
       ${eligible.length ? `<div class="bz-wall-contribute">
         <div class="bz-wall-title">Help others spot these senders</div>
         <div class="bz-result-note">Share business names and hashed numbers with the public Wall of Shame.</div>
-        ${rs?.ok ? `<a class="bz-link" href="${esc(rs.url || SITE_URL)}/wall" target="_blank" rel="noopener">Added · Open the Wall of Shame ↗</a>` : `<div class="bz-wall-buttons"><button class="bz-link" data-act="report" ${!selN || rs === 'sending' ? 'disabled' : ''}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall`}</button><button class="bz-link muted" data-act="rep-toggle">${state.showRep ? 'Hide selection' : 'Choose which'}</button></div>`}
+        ${rs?.ok ? `<a class="bz-link" href="${esc(rs.url || SITE_URL)}/wall" target="_blank" rel="noopener">Added ${rs.accepted || ''} · Open the Wall of Shame ↗</a>` : `<div class="bz-wall-buttons"><button class="bz-btn ghost" data-act="report" ${!selN || rs === 'sending' ? 'disabled' : ''}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button><button class="bz-link muted" data-act="rep-toggle">${state.showRep ? 'Hide selection' : 'Choose which'}</button></div>`}
         ${rs?.error ? `<div class="bz-result-note">Couldn't add: ${esc(rs.error)}. Try again.</div>` : ''}
         ${state.showRep ? renderRepList(eligible) : ''}
         <label class="bz-auto"><input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}> Add automatically after future runs</label>
@@ -1973,6 +2035,11 @@
               <span class="bz-tile-n ${cls}">${note}</span>
             </button>`).join('')}
         </div>
+        <label class="bz-wall-opt ${state.history.autoReport ? 'on' : ''}">
+          <input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}>
+          <span><b>Also name repeat spammers on the public Wall of Shame</b>
+          <small>After each bounce, the business names and hashed numbers you bounced go to <a href="${SITE_URL}/wall" target="_blank" rel="noopener">dearcustomer.kanishkdan.com</a>. Never your number, contacts or messages. A business is only listed once three people on different networks add it. Switch this off any time.</small></span>
+        </label>
       </div>`;
   }
   function renderSetupFoot() {

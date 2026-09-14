@@ -206,3 +206,9 @@ test('the page-visible handle is off by default and can never start a run', () =
   h.sandbox.window.localStorage = { getItem: (k) => (k === 'dearcustomer.debug' ? '1' : null) };
   assert.ok(h.sandbox.window.__bouncer.state); assert.equal(h.sandbox.window.__bouncer.run, undefined);
 });
+test('Wall contribution is on for new installs and kept as stored for existing ones', () => {
+  const h = harness(); h.state.historyLoaded = false; h.state.groups = [];
+  h.send('history', { onboarded: false, seen: {}, runs: [], ignored: {} }); assert.equal(h.state.history.autoReport, true);
+  h.send('history', { onboarded: true, autoReport: false, seen: {}, runs: [], ignored: {} }); assert.equal(h.state.history.autoReport, false);
+  h.send('history', { onboarded: true, autoReport: true, seen: {}, runs: [], ignored: {} }); assert.equal(h.state.history.autoReport, true);
+});

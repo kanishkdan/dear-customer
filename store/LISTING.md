@@ -26,7 +26,7 @@ Review the senders, choose your actions and press Bounce:
 
 Ignore senders you want to keep and restore them at any time. Follow each action as it runs, stop after the current action, and see what completed or needs attention.
 
-Chat analysis runs locally in your browser. Selected actions use your existing WhatsApp Web session; reporting can send message context to WhatsApp. Sharing results is optional: contribute business names and hashed sender numbers to the public Wall of Shame, save an image card, or open an editable X draft. Wall contributions include a random installation identifier to count each installation once. No message content is uploaded to Dear Customer.
+Chat analysis runs locally in your browser. Selected actions use your existing WhatsApp Web session; reporting can send message context to WhatsApp. Sharing results is your choice: a clearly labelled option on the setup screen (on by default, switch it off any time) contributes business names and hashed sender numbers to the public Wall of Shame, save an image card, or open an editable X draft. Wall contributions include a random installation identifier to count each installation once. No message content is uploaded to Dear Customer.
 
 Free and open source. Requires a WhatsApp account linked to WhatsApp Web. Not affiliated with WhatsApp or Meta.
 

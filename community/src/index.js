@@ -536,7 +536,7 @@ function privacyPage(env) {
   <p>All of this lives in Chrome's extension storage on your device. Removing the extension deletes it.</p>
 
   <h2>What is sent to this website, and when</h2>
-  <p>When you press <b>Add to the Wall</b>, or enable automatic contribution after future runs, the extension sends the following for the eligible businesses you select:</p>
+  <p>When you press <b>Add to the Wall</b>, or leave automatic contribution on (offered during setup, on by default for new installs, and switchable off at any time on the setup or results screen), the extension sends the following for the eligible businesses:</p>
   <ul>
     <li>The business name exactly as WhatsApp shows it.</li>
     <li>A SHA-256 hash of the digits of each number that business used. The number itself is never sent.</li>
@@ -663,7 +663,7 @@ async function wallPage(env) {
     <tbody>${rowsHtml}</tbody>
   </table></div>
   <div class="cta">
-    <div style="flex:1;min-width:240px"><b>Add yours.</b> Install Dear Customer on WhatsApp Web, bounce the businesses spamming you, and press "Add to the Wall of Shame".</div>
+    <div style="flex:1;min-width:240px"><b>Add yours.</b> Install Dear Customer on WhatsApp Web, bounce the businesses spamming you, and add them to the Wall.</div>
     <a class="btn" href="/">How it works</a>
   </div>
   <div class="smallprint">

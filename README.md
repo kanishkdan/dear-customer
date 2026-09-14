@@ -76,7 +76,7 @@ The word lists live in `src/keywords.js`: promotional phrases, transactional phr
 
 ## Privacy
 
-Chat processing runs in your browser. If you choose **Add to the Wall**, or enable automatic contribution, the extension sends the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. **Post to X** sends aggregate results and the site link to an editable X draft; it omits business names, phone numbers and message content. Image cards are saved locally and can include business names and counts. Full policy: <https://dearcustomer.kanishkdan.com/privacy>.
+Chat processing runs in your browser. If you choose **Add to the Wall**, or leave automatic contribution on (offered during setup, on by default for new installs, switch it off any time), the extension sends the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. **Post to X** sends aggregate results and the site link to an editable X draft; it omits business names, phone numbers and message content. Image cards are saved locally and can include business names and counts. Full policy: <https://dearcustomer.kanishkdan.com/privacy>.
 
 ## Is this safe for my number?
 

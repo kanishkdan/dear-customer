@@ -18,7 +18,7 @@ Injects the locally bundled vendor/wppconnect-wa.js library into WhatsApp Web af
 
 https://web.whatsapp.com/*: Runs the extension inside WhatsApp Web to identify promotional senders, display the review panel and perform user-selected opt-out, STOP, report, block and archive actions.
 
-https://dearcustomer.kanishkdan.com/*: Fetches and caches the public spam list. When the user submits to the Wall of Shame or enables automatic contributions, sends eligible business names, hashed sender phone numbers, business/category metadata, a sender country-code guess and a random installation identifier. The service also stores a keyed hash of the network part of the contributor's IP address, to count separate reporters; the address itself is not stored. Private message content and the user's own account phone number are not sent to this service.
+https://dearcustomer.kanishkdan.com/*: Fetches and caches the public spam list. When the user submits to the Wall of Shame, or leaves automatic contribution on (a clearly labelled option on the mandatory setup screen, on by default, switchable off at any time), sends eligible business names, hashed sender phone numbers, business/category metadata, a sender country-code guess and a random installation identifier. The service also stores a keyed hash of the network part of the contributor's IP address, to count separate reporters; the address itself is not stored. Private message content and the user's own account phone number are not sent to this service.
 
 ## Remote code
 
