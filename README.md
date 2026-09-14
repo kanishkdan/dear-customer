@@ -26,14 +26,14 @@ Every one of these messages opens the same way. Blocking the sender does nothing
 
 **[Add to Chrome](https://chromewebstore.google.com/detail/dear-customer/lleodoeagdgcfbjcippnlijaikehgfpe)**
 
-Open <https://web.whatsapp.com> after installing. Once your chats load, click the **Dear Customer** pill at bottom-left or the toolbar icon.
+Open <https://web.whatsapp.com> after installing. Once your chats load, click the **Dear Customer** icon in WhatsApp's left sidebar, above Settings, or the toolbar icon.
 
 For development or manual installation:
 
 1. Download the latest release zip from the Releases page, or clone this repo.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, pick the folder.
 3. Open <https://web.whatsapp.com> and link your phone if you haven't.
-4. A **Dear Customer** pill appears bottom-left once your chats are showing. Click it, or click the toolbar icon.
+4. A **Dear Customer** icon appears in WhatsApp's left sidebar, above Settings, once your chats are showing. Click it, or click the toolbar icon.
 
 Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content scripts in the page world (Edge, Brave, Arc).
 

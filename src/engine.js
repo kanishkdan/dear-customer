@@ -238,6 +238,7 @@
         const s = status();
         if (s !== last) { last = s; render(); }
         else if (pill) pill.hidden = state.open || loginScreen();   // the QR canvas appears after mount
+        placePill();
         if (s === 'ready') return resolve(true);
         setTimeout(tick, 1000);
       };
@@ -1159,13 +1160,20 @@
   #bouncer-root [hidden] { display: none !important; }
   #bouncer-root .caps { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
 
-  /* pill */
-  #bouncer-root .bz-pill { position: fixed; left: 16px; bottom: 16px; display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 14px; border-radius: 3px; background: var(--ground); color: var(--paper); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 600; font-size: 13px; white-space: nowrap; transition: background .15s; }
-  #bouncer-root .bz-pill:hover { background: #182229; }
+  /* launcher: an icon in WhatsApp's left rail, in the first free slot above Settings and
+     your profile picture. Without a rail it is a pill in the bottom-left corner. */
+  #bouncer-root .bz-pill { position: fixed; left: 10px; bottom: 120px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: transparent; color: var(--paper); transition: background .15s; }
+  #bouncer-root .bz-pill:hover { background: rgba(134,150,160,.18); }
+  #bouncer-root .bz-pill .bz-logo { width: 30px; height: 30px; border-radius: 8px; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 6px 18px rgba(0,0,0,.35); }
+  #bouncer-root .bz-pill .bz-pill-t { display: none; }
+  #bouncer-root .bz-count { position: absolute; top: 0; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--ink); color: #fff; font-family: var(--display); font-size: 11px; font-weight: 700; letter-spacing: 0; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-pill.wide { left: 16px; bottom: 16px; width: auto; height: 38px; gap: 10px; padding: 0 14px; border-radius: 3px; background: var(--ground); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 600; font-size: 13px; white-space: nowrap; }
+  #bouncer-root .bz-pill.wide:hover { background: #182229; }
+  #bouncer-root .bz-pill.wide .bz-logo { width: 20px; height: 20px; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+  #bouncer-root .bz-pill.wide .bz-pill-t { display: inline; }
+  #bouncer-root .bz-pill.wide .bz-count { position: static; min-width: 0; height: auto; padding: 0; border-radius: 0; background: none; color: var(--ink); font-size: 15px; line-height: 1; }
   #bouncer-root .bz-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); flex: none; }
   #bouncer-root .bz-logo { width: 22px; height: 22px; flex: none; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
-  #bouncer-root .bz-pill .bz-logo { width: 20px; height: 20px; }
-  #bouncer-root .bz-count { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 
   /* sheet */
   #bouncer-root .bz-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 420px; max-width: 100vw; background: var(--ground); border-right: 1px solid var(--line); box-shadow: 24px 0 60px rgba(0,0,0,.45); display: flex; flex-direction: column; transform: translateX(calc(-100% - 120px)); visibility: hidden; transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease, visibility 0s linear .26s; }
@@ -1429,7 +1437,7 @@
     root = document.createElement('div');
     root.id = 'bouncer-root';
     root.innerHTML = `
-      <button class="bz-pill" data-act="toggle" title="Dear Customer">${LOGO}Dear Customer<span class="bz-count" hidden></span></button>
+      <button class="bz-pill" data-act="toggle" title="Dear Customer">${LOGO}<span class="bz-pill-t">Dear Customer</span><span class="bz-count" hidden></span></button>
       <aside class="bz-panel" role="dialog" aria-label="Dear Customer"></aside>`;
     document.body.appendChild(root);
     pill = root.querySelector('.bz-pill');
@@ -1438,8 +1446,32 @@
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closePanel(); });
-    window.addEventListener('resize', () => { if (state.open) dockPanel(); });
+    window.addEventListener('resize', () => { if (state.open) dockPanel(); placePill(); });
     render();
+    // WhatsApp finishes laying out its rail a moment after the chat list shows.
+    for (const ms of [1500, 4000, 10000]) setTimeout(placePill, ms);
+  }
+
+  // WhatsApp's left rail holds Chats, Status, Settings and your profile picture. The
+  // launcher lives in that rail, in the first free slot above whatever sits at the
+  // bottom, so it never covers your profile. Without a rail it is a pill in the corner.
+  function placePill() {
+    if (!pill || pill.hidden) return;
+    let railW = 0;
+    try { const pane = document.getElementById('pane-side'); if (pane) railW = Math.round(pane.getBoundingClientRect().left); } catch (_) {}
+    const rail = railW >= 48 && railW <= 96;
+    pill.classList.toggle('wide', !rail);
+    if (!rail) { pill.style.left = ''; pill.style.bottom = ''; return; }
+    const size = 44, cx = Math.round(railW / 2);
+    const busy = (y) => { try { return document.elementsFromPoint(cx, y).some((el) => !root.contains(el) && el.closest('button, [role="button"], a, img')); } catch (_) { return false; } };
+    let bottom = 120;
+    for (let k = 0; k < 8; k++) {
+      const b = 16 + k * 52, yc = window.innerHeight - b - size / 2;
+      if (yc < 80) break;
+      if (![yc - 26, yc, yc + 26].some(busy)) { bottom = b; break; }
+    }
+    pill.style.left = Math.round((railW - size) / 2) + 'px';
+    pill.style.bottom = bottom + 'px';
   }
 
   // Size and place the sheet over WhatsApp's chat-list column. Expanded, it takes
@@ -1586,6 +1618,7 @@
     const countEl = pill.querySelector('.bz-count');
     if (state.scanned && activeBiz.length) { countEl.textContent = String(activeBiz.length); countEl.hidden = false; }
     else countEl.hidden = true;
+    placePill();
     panel.classList.toggle('open', state.open);
     if (!state.open) return;
     if (state.running && !full && panel.querySelector('.bz-run-list')) { updateRunUI(); return; }

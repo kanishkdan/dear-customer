@@ -16,6 +16,7 @@ Built as `dist/dear-customer-1.0.3.zip`; not yet uploaded to the store. Store sc
 - WhatsApp's opt-out is skipped when WhatsApp's own switch says it's off for the account; when the switch can't be found it runs as before. Every number a ticked business used is blocked and archived; only numbers active in the chosen period are reported, capped at 25 per run and 50 per day.
 - Nothing is saved before stored history loads, so an early save can't wipe the ignore list or past runs.
 - `window.__bouncer` is read-only, can't start a run, and is off unless `localStorage.dearcustomer.debug` is `1`.
+- The launcher is an icon in WhatsApp's left sidebar, placed in the first free slot above Settings and the profile picture, instead of a pill covering the profile. Without a sidebar it stays a corner pill.
 - The first screen after setup is a proper call to action: icon, one line on what happens, and a full-width Look for businesses button.
 - The Wall only accepts official business accounts. A business needs three installs on three different networks, counted by a keyed hash of the IPv4 /24 or IPv6 /48; the address itself is never stored. `scripts/suppress.sh` hides a business at once.
 
