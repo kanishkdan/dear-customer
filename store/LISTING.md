@@ -22,7 +22,7 @@ Review the senders, choose your actions and press Bounce:
 
 • Request marketing opt-outs and send STOP replies.
 • Report and block selected numbers.
-• Archive chats, or optionally delete them.
+• Archive chats. Unarchive any time.
 
 Ignore senders you want to keep and restore them at any time. Follow each action as it runs, stop after the current action, and see what completed or needs attention.
 
@@ -49,9 +49,9 @@ Copy the exact fields and checkbox guidance from [PRIVACY-FIELDS.md](PRIVACY-FIE
 
 ## Review notes (for the reviewer box)
 
-This extension helps a WhatsApp user unsubscribe from businesses that message them. It only sends a STOP reply or chooses an unsubscribe button when the user enables that action and presses Bounce. STOP replies are limited to one selected number per business, capped at 20 per run and 40 per day. Selected opt-out, report, block, archive and delete actions use the user's existing WhatsApp session.
+This extension helps a WhatsApp user unsubscribe from businesses that message them. It only sends a STOP reply or chooses an unsubscribe button when the user enables that action and presses Bounce. STOP replies are limited to one selected number per business, capped at 20 per run and 40 per day. Selected opt-out, report, block and archive actions use the user's existing WhatsApp session. Contacts saved in the user's address book are never pre-selected, numbers that send order or booking updates are left alone, and the extension cannot delete chats.
 
-Testing requires a WhatsApp account linked to web.whatsapp.com. After linking, wait for the chat list to appear, then click the Dear Customer pill at bottom-left or the toolbar icon. The panel lists business senders; nothing is sent or changed until the user presses Bounce. The extension automates actions the user could do by hand in WhatsApp Web (block, delete, report, reply, opt out). The bundled library wa-js is open source (Apache 2.0, github.com/wppconnect-team/wa-js) and is included unmodified.
+Testing requires a WhatsApp account linked to web.whatsapp.com. After linking, wait for the chat list to appear, then click the Dear Customer pill at bottom-left or the toolbar icon. The panel lists business senders; nothing is sent or changed until the user presses Bounce. The extension automates actions the user could do by hand in WhatsApp Web (block, archive, report, reply, opt out). The bundled library wa-js is open source (Apache 2.0, github.com/wppconnect-team/wa-js) and is included unmodified.
 
 ## After approval
 

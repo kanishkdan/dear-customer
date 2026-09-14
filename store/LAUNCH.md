@@ -6,6 +6,29 @@ On 14 September 2026, the landing page was deployed with the live Add to Chrome 
 
 Replacement video: https://www.youtube.com/watch?v=OnTBwxdliI0. YouTube reports it playable with embedding allowed, and the live landing page uses this ID in its click-to-load player. The prior store video QauQmaZ6SiQ has been removed by its uploader. The store dashboard displayed a review-submission confirmation; the submitted video's URL has not been verified. The user is handling browser steps. GitHub publication of these local changes and a real WhatsApp acceptance run remain unverified.
 
+## 1.0.3 safety release (14 September 2026)
+
+Built as `dist/dear-customer-1.0.3.zip`; not yet uploaded to the store.
+
+- Delete is gone. Choices saved by older versions with delete switched on are stripped when history loads.
+- Saved contacts on the WhatsApp Business app are never pre-ticked, and a plain chat message needs two promotional words before it counts as an ad.
+- Each number is classified by everything it sends. Numbers that only send updates are left alone. Numbers that send both only get WhatsApp's marketing opt-out and a promotions-only unsubscribe button: no block, report, archive, "disable all" or typed STOP.
+- WhatsApp's opt-out only runs where WhatsApp has enabled it for the account. Only numbers active in the chosen period are touched. Reports are capped at 25 per run and 50 per day.
+- Nothing is saved before stored history loads, so an early save can't wipe the ignore list or past runs.
+- `window.__bouncer` is read-only, can't start a run, and is off unless `localStorage.dearcustomer.debug` is `1`.
+- The Wall only accepts official business accounts. A business needs three installs on three different networks, counted by a keyed hash of the IPv4 /24 or IPv6 /48; the address itself is never stored. `scripts/suppress.sh` hides a business at once.
+
+Wall changes are live: D1 migration applied (`reports.net_hash`, `suppressed`), `IP_SALT` secret set, Worker version f792360d-865f-47e7-8301-6c23d2dee041. Three fake installs from one network did not list a probe business, a non-official account was rejected, and the takedown round trip worked. Probe rows were deleted.
+
+Verified: 19 logic tests, the offline UI suite (zero page errors, zero network requests), and a browser pass with the real extension on web.whatsapp.com against mocked WhatsApp:
+- Mom was not ticked.
+- Myntra got the opt-out plus a tap on "Stop promotions" only.
+- Kiwi's OTP number was left alone.
+- Kiwi's promo number got the full set of actions.
+- No delete call was made, and nothing was sent to the Wall.
+
+To do: upload the 1.0.3 zip, replace the store description line about deleting with "Archive chats. Unarchive any time.", and run one real-account pass on a sender that sends both orders and offers.
+
 ## Release files
 
 - `dist/dear-customer-1.0.2.zip` — Chrome Web Store / unpacked installation package.

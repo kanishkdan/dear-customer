@@ -3,7 +3,8 @@
  *
  * Flow: scan chats -> classify senders -> group by business -> user ticks ->
  * per number: WhatsApp's marketing opt-out -> STOP (button or text, latest live
- * number only) -> report -> block -> delete chat.
+ * number only) -> report -> block -> archive. Numbers that also send updates get
+ * marketing-only actions; numbers that only send updates are left alone.
  *
  * Nothing leaves the browser except WhatsApp's own traffic and, only when the
  * user presses "Add to the Wall of Shame", business names plus hashed numbers.
@@ -13,7 +14,7 @@
   if (window.__bouncerLoaded) return;
   window.__bouncerLoaded = true;
 
-  const VERSION = '1.0.2';
+  const VERSION = '1.0.3';
   const SITE_URL = 'https://dearcustomer.kanishkdan.com';
   const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><path d="M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z" fill="#fff"/><rect x="262" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="566" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="452" y="418" width="120" height="34" rx="17" fill="#1c1c1e"/></svg>';
   const STOP_TEXT = 'STOP';
@@ -25,7 +26,7 @@
     open: false,
     days: 7,                   // 0 = all time
     filter: 'promo',           // 'promo' | 'all'
-    actions: { optout: true, stop: true, report: true, block: true, archive: true, del: false },
+    actions: { optout: true, stop: true, report: true, block: true, archive: true },
     onboarded: false,          // has the user answered "what do you want to do with these messages?"
     groups: [],
     scanned: false,
@@ -65,11 +66,26 @@
     if (ev.source !== window || !ev.data || !ev.data.__bouncer || ev.data.dir !== 'to-page') return;
     const { type, payload } = ev.data;
     if (type === 'history') {
+      const pre = { onboarded: state.onboarded, actions: { ...state.actions } };
       state.historyLoaded = true;
       if (payload && typeof payload === 'object') {
-        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, ignored: payload.ignored || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0 };
+        state.history = { seen: payload.seen || {}, runs: payload.runs || [], bounced: payload.bounced || {}, ignored: payload.ignored || {}, autoReport: !!payload.autoReport, actions: payload.actions || null, onboarded: !!payload.onboarded, stopDay: payload.stopDay || null, stopCount: payload.stopCount || 0, reportDay: payload.reportDay || null, reportCount: payload.reportCount || 0 };
         if (payload.actions && typeof payload.actions === 'object') state.actions = { ...state.actions, ...payload.actions };
         state.onboarded = !!payload.onboarded;
+      }
+      // Delete was removed in 1.0.3. A choice saved by an older version must never run it.
+      delete state.actions.del;
+      if (state.history.actions) delete state.history.actions.del;
+      // Answered the setup question before stored history arrived: keep that answer.
+      if (pre.onboarded && !state.onboarded) {
+        state.onboarded = true; state.history.onboarded = true;
+        state.actions = { ...pre.actions }; state.history.actions = { ...pre.actions };
+        deferredSave = true;
+      }
+      if (deferredSave) {
+        deferredSave = false;
+        const rows = state.groups.filter((g) => g.kind === 'biz').flatMap((g) => g.numbers);
+        if (rows.length) rememberSeen(rows); else saveHistory();
       }
       render();
     } else if (type === 'open') {
@@ -135,7 +151,13 @@
     return phone.length >= 12 ? phone.slice(0, 2) : phone.slice(0, 1);
   };
 
-  function saveHistory() { toExt('save', state.history); }
+  // Never write before stored history has loaded: an empty copy would overwrite the
+  // ignore list, saved choices and past runs.
+  let deferredSave = false;
+  function saveHistory() {
+    if (!state.historyLoaded) { deferredSave = true; return; }
+    toExt('save', state.history);
+  }
 
   // Businesses you never want bounced. Matched by the same name key the groups use,
   // so a new number from an ignored business stays ignored.
@@ -435,7 +457,10 @@
     const promo = countRe(PROMO_RE, text);
     const txn = countRe(TXN_RE, text);
     // Ties go to alerts: a statement that mentions a credit card is still a statement.
-    if (promo >= 1 && promo > txn) return 'promo-guess';
+    // A plain chat message needs two promotional words; one "gift" in a birthday wish is
+    // not an ad. Templates and messages with buttons need one.
+    const templated = msgSignals(m).biz;
+    if (promo >= (templated ? 1 : 2) && promo > txn) return 'promo-guess';
     if (txn === 0 && hasCta(m)) return 'promo-guess';
     if (tag === 'utility' || txn >= 1) return 'utility';
     return null;
@@ -551,6 +576,21 @@
           const sg = msgSignals(m); if (sg.biz) { bizByMsg = true; msgName = msgName || sg.name; }
           const c = msgCategory(m); if (c) cats[c]++;
         }
+        // Someone saved in your contacts who uses the WhatsApp Business app is a person you
+        // know. Their plain messages never count as promotions; only a real marketing
+        // template from WhatsApp does.
+        const saved = f.isMyContact === true && !f.isEnterprise && !f.verifiedName;
+        if (saved) cats['promo-guess'] = 0;
+        // What this number sends you across every loaded message, not just this period.
+        // It decides which actions are safe for the number during a run.
+        let sendsPromo = cats.marketing > 0 || cats['promo-guess'] > 0 || !!f.marketingThread;
+        let sendsUpdates = false;
+        for (const m of inboundAll) {
+          const c = msgCategory(m);
+          if (c === 'marketing' || (c === 'promo-guess' && !saved)) sendsPromo = true;
+          if (c === 'utility' || c === 'auth') sendsUpdates = true;
+        }
+        const cls = sendsPromo && sendsUpdates ? 'mixed' : sendsUpdates ? 'updates' : sendsPromo ? 'promo' : 'none';
         let isBiz = bizByContact || bizByMsg;
         const unknown = !isBiz && inWindow && inbound.length > 0 && f.isMyContact === false && !f.isPSA;
         if (!isBiz && !unknown) continue;
@@ -590,6 +630,7 @@
           : isApi ? (wallPromo ? 'guess' : 'api') : isBiz ? 'smb' : 'unknown';
         rows.push({
           id, phone, hash, name, kind: isBiz ? 'biz' : 'unknown', isApi, verified: !!f.verifiedName, category,
+          enterprise: !!f.isEnterprise, saved, cls,
           optedOut: !!f.optedOut,
           known: known ? { name: known.name, people: known.promo_people != null ? known.promo_people : known.people, numbers: known.numbers } : null,
           ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow, lastMsgId,
@@ -634,8 +675,12 @@
       const order = ['promo', 'guess', 'txn', 'api', 'smb', 'unknown'];
       g.category = g.numbers.map((n) => n.category).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0] || 'unknown';
       g.optedOut = g.numbers.some((n) => n.optedOut);
+      g.saved = g.numbers.some((n) => n.saved);
+      g.enterprise = g.numbers.some((n) => n.enterprise);
+      g.sendsUpdates = g.numbers.some((n) => n.cls === 'mixed' || n.cls === 'updates');
       g.promo = g.category === 'promo' || g.category === 'guess';
-      g.checked = g.kind === 'biz' && g.active.length > 0 && g.promo && !isIgnored(g.key);
+      // Never pre-tick someone saved in your contacts, whatever their account type.
+      g.checked = g.kind === 'biz' && g.active.length > 0 && g.promo && !g.saved && !isIgnored(g.key);
       g.expanded = false;
       return g;
     });
@@ -739,7 +784,17 @@
     if (!optOutMod) throw new Error('opt-out unavailable on this WhatsApp Web build');
     return optOutMod;
   }
+  // WhatsApp only shows "Stop offers and announcements" where it has switched the feature
+  // on for the account. Sending the request anywhere else is a request the official app
+  // never makes, so honour the same switch and skip when it is off or unknown.
+  function optOutAllowed() {
+    try {
+      const gate = window.require && window.require('WAWebMarketingMessagesUserFeedbackGatingUtils');
+      return !!(gate && typeof gate.isMMOptOutEnabled === 'function' && gate.isMMOptOutEnabled());
+    } catch (_) { return false; }
+  }
   async function stopMarketing(id) {
+    if (!optOutAllowed()) throw new Error('opt-out unavailable for this WhatsApp account');
     const W = window.WPP;
     const mod = await loadOptOut();
     const chat = await W.chat.get(id);
@@ -770,7 +825,7 @@
   function chatModels(chat) {
     try { return (chat.msgs.toArray ? chat.msgs.toArray() : chat.msgs.getModelsArray()).slice(); } catch (_) { return []; }
   }
-  function bestOptOutButton(models, minTs, minScore) {
+  function bestOptOutButton(models, minTs, minScore, promoOnly = false) {
     let best = null;
     for (const m of models.slice().reverse()) {
       if (!m || !m.id || m.id.fromMe) continue;
@@ -781,35 +836,45 @@
         const q = b && b.quickReplyButton;
         if (!q) return;
         const score = optOutScore(q.displayText);
+        // For a number that also sends updates, only buttons that stop promotions: never
+        // "disable all", a generic "unsubscribe" or a bare "stop".
+        if (promoOnly && score !== 3 && score !== 2) return;
         if (score >= (minScore || 1) && (!best || score > best.score)) best = { msg: m, index: typeof b.index === 'number' ? b.index : i, text: q.displayText, score };
       });
-      if (best && best.score >= 4) break;
+      if (best && best.score >= (promoOnly ? 3 : 4)) break;
     }
     return best;
   }
-  async function sendStop(id) {
+  async function hasPromoOnlyButton(id) {
+    try { const chat = await window.WPP.chat.get(id); return !!(chat && bestOptOutButton(chatModels(chat).slice(-25), 0, 2, true)); }
+    catch (_) { return false; }
+  }
+  async function sendStop(id, { promoOnly = false } = {}) {
     const W = window.WPP;
     const chat = await W.chat.get(id);
     if (!chat) throw new Error('chat not found');
     const before = nowSec();
-    const btn = bestOptOutButton(chatModels(chat).slice(-25), 0, 1);
+    const btn = bestOptOutButton(chatModels(chat).slice(-25), 0, promoOnly ? 2 : 1, promoOnly);
     let how = null;
     if (btn && typeof W.chat.replyToButtonMessage === 'function') {
       try { await W.chat.replyToButtonMessage(id, btn.msg.id, { buttonIndex: btn.index }); how = `tapped "${btn.text}"`; }
-      catch (e) { log('button tap failed, typing STOP instead', String((e && e.message) || e)); }
+      catch (e) { log('button tap failed', String((e && e.message) || e)); }
     }
     if (!how) {
+      // A typed STOP can unsubscribe from everything, so never for a number that also sends updates.
+      if (promoOnly) throw new Error('no promotions-only button');
       await W.chat.sendTextMessage(id, STOP_TEXT, { waitForAck: false, linkPreview: false, markIsRead: true });
       how = 'typed STOP';
     }
-    // A bot may answer with a menu. Take its strongest opt-out or confirm option.
+    // A bot may answer with a menu. Take its strongest allowed opt-out, or a plain
+    // confirmation, but never a generic confirmation for a number that sends updates.
     await sleep(3500);
-    const follow = bestOptOutButton(chatModels(chat).slice(-10), before, 2)
-      || (() => { const m = chatModels(chat).slice(-10).reverse().find((x) => x && x.id && !x.id.fromMe && (x.t || 0) >= before && Array.isArray(x.hydratedButtons));
+    const follow = bestOptOutButton(chatModels(chat).slice(-10), before, 2, promoOnly)
+      || (promoOnly ? null : (() => { const m = chatModels(chat).slice(-10).reverse().find((x) => x && x.id && !x.id.fromMe && (x.t || 0) >= before && Array.isArray(x.hydratedButtons));
         if (!m) return null; const i = m.hydratedButtons.findIndex((b) => b && b.quickReplyButton && /^(yes|confirm|ok|proceed)/i.test(String(b.quickReplyButton.displayText || '')));
-        return i >= 0 ? { msg: m, index: typeof m.hydratedButtons[i].index === 'number' ? m.hydratedButtons[i].index : i, text: m.hydratedButtons[i].quickReplyButton.displayText, score: 2 } : null; })();
+        return i >= 0 ? { msg: m, index: typeof m.hydratedButtons[i].index === 'number' ? m.hydratedButtons[i].index : i, text: m.hydratedButtons[i].quickReplyButton.displayText, score: 2 } : null; })());
     if (follow && typeof W.chat.replyToButtonMessage === 'function') {
-      try { await W.chat.replyToButtonMessage(id, follow.msg.id, { buttonIndex: follow.index }); how += ` → "${follow.text}"`; } catch (e) { how += ' (follow-up failed)'; }
+      try { await W.chat.replyToButtonMessage(id, follow.msg.id, { buttonIndex: follow.index }); how += ` then "${follow.text}"`; } catch (e) { how += ' (follow-up failed)'; }
     }
     return how;
   }
@@ -817,13 +882,14 @@
   // --------------------------------------------------------------------- run
   const actionSucceeded = (v) => v === true || v === 'already';
   const numberSucceeded = (n) => !!n.result && resultKeys.some((k) => actionSucceeded(n.result[k]));
-  const resultKeys = ['optout', 'stop', 'report', 'block', 'archive', 'del'];
+  const resultKeys = ['optout', 'stop', 'report', 'block', 'archive'];
   function outcome(g) {
     const values = g.numbers.flatMap((n) => resultKeys.map((k) => (n.result || {})[k]).filter((v) => v !== undefined));
     const good = values.filter(actionSucceeded).length;
     const failed = values.some((v) => v === false || v === 'timeout');
     const incomplete = values.some((v) => ['skipped', 'cancelled', 'undone'].includes(v));
     if (!g.done) return { key: g.numbers.some((n) => n.id === state.activeId) ? 'running' : 'queued', label: g.numbers.some((n) => n.id === state.activeId) ? `${state.progress?.step || 'Working'}…` : 'Queued' };
+    if (!values.length && g.numbers.some((n) => n.result && n.result.kept)) return { key: 'stopped', label: 'Left alone' };
     if (good) return { key: failed || incomplete ? 'partial' : 'complete', label: failed || incomplete ? 'Partly completed' : 'Completed' };
     if (failed) return { key: 'failed', label: 'Failed' };
     if (values.includes('undone')) return { key: 'stopped', label: 'Undone' };
@@ -835,7 +901,14 @@
     const targets = selectedGroups().slice().sort(rankSort);
     if (!targets.length) return;
     const A = { ...state.actions };
-    if (!resultKeys.some((k) => A[k])) return;
+    delete A.del;
+    // WhatsApp's own opt-out is only used where WhatsApp itself offers it to this account.
+    const optoutUnavailable = !!A.optout && !optOutAllowed();
+    if (optoutUnavailable) A.optout = false;
+    if (!resultKeys.some((k) => A[k])) {
+      if (optoutUnavailable) notice("WhatsApp hasn't turned on its own opt-out for your account. Pick another action under Change.");
+      return;
+    }
     const W = window.WPP;
     state.runActions = A;
     state.runKeys = targets.map((g) => g.key);
@@ -843,36 +916,52 @@
     state.results = null;
     state.cancel = false;
     state.notice = null;
-    const total = targets.reduce((s, g) => s + g.numbers.length, 0);
-    state.progress = { done: 0, total, biz: '', phone: '', step: '' };
-    const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, archive: 0, del: 0, failed: 0, cancelled: 0, top: [], actions: A };
     const today = new Date().toISOString().slice(0, 10);
     const dayStops = state.history.stopDay === today ? (state.history.stopCount || 0) : 0;
     const STOP_CAP = Math.max(0, Math.min(20, 40 - dayStops));
-    let stopsSent = 0, optoutDead = false, reportDead = false;
+    const dayReports = state.history.reportDay === today ? (state.history.reportCount || 0) : 0;
+    const REPORT_CAP = Math.max(0, Math.min(25, 50 - dayReports));
+    let stopsSent = 0, reportsSent = 0, optoutDead = false, reportDead = false;
+
+    // Plan each number before touching anything. Only numbers active in the chosen period
+    // are acted on. A number that only sends updates is left alone. A number that sends
+    // both promotions and updates only gets actions that stop marketing, so orders,
+    // bookings and OTPs keep coming.
     for (const g of targets) {
-      g.done = false; g.expanded = false;
+      g.done = false; g.expanded = false; g.stopId = null;
       for (const n of g.numbers) {
         n.result = {}; n.errors = {};
-        for (const k of resultKeys) if (A[k] && k !== 'stop' && !(k === 'archive' && A.del)) n.result[k] = 'pending';
+        n.plan = !n.inWindow ? null : n.cls === 'updates' ? 'keep' : n.cls === 'mixed' ? 'marketing' : 'full';
+        if (n.plan === 'keep') { n.result.kept = 'updates'; continue; }
+        if (!n.plan) continue;
+        for (const k of resultKeys) {
+          if (!A[k] || k === 'stop') continue;
+          if (n.plan === 'marketing' && k !== 'optout') continue;
+          n.result[k] = 'pending';
+        }
       }
       if (A.stop) {
-        const recent = g.numbers.find((n) => !n.blocked && n.ts >= nowSec() - 30 * 86400);
-        g.stopId = (recent || g.numbers[0]).id;
-        const n = recent || g.numbers[0];
-        n.result.stop = recent ? 'pending' : 'skipped';
-        if (!recent) n.errors.stop = 'No unblocked number has messaged in the last 30 days.';
+        const eligible = g.numbers.filter((n) => n.plan === 'full' || n.plan === 'marketing');
+        const recent = eligible.find((n) => !n.blocked && n.ts >= nowSec() - 30 * 86400);
+        if (recent) { g.stopId = recent.id; recent.result.stop = 'pending'; }
+      }
+      for (const n of g.numbers) {
+        if (n.plan === 'marketing' && !resultKeys.some((k) => n.result[k] !== undefined)) { n.plan = 'keep'; n.result.kept = 'mixed'; }
       }
     }
+    const total = targets.reduce((c, g) => c + g.numbers.filter((n) => n.plan === 'full' || n.plan === 'marketing').length, 0);
+    state.progress = { done: 0, total, biz: '', phone: '', step: '' };
+    const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, archive: 0, failed: 0, cancelled: 0, top: [], actions: A, optoutUnavailable };
     render(true);
-    log('run start', { businesses: targets.length, actions: A });
+    log('run start', { businesses: targets.length, numbers: total, actions: A });
     for (const g of targets) {
       for (const n of g.numbers) {
+        if (n.plan !== 'full' && n.plan !== 'marketing') continue;
         if (!state.cancel) state.activeId = n.id;
         const label = (what) => { state.progress.biz = g.name; state.progress.phone = fmtPhone(n.phone); state.progress.step = what; updateRunUI(); };
         const skip = (key, reason) => { n.result[key] = 'skipped'; n.errors[key] = reason; updateRunUI(); };
         const act = async (key, what, fn, ms) => {
-          if (state.cancel) return;
+          if (state.cancel) return false;
           label(what);
           const ok = await step(n, key, what, fn, ms);
           if (ok) { if (n.result[key] !== 'already') sum[key]++; }
@@ -880,17 +969,19 @@
           await sleep(150);
           return ok;
         };
-        if (!state.cancel && A.optout) {
-          if (optoutDead) skip('optout', 'WhatsApp opt-out is unavailable on this version.');
+        if (!state.cancel && n.result.optout === 'pending') {
+          if (optoutDead) skip('optout', "WhatsApp's opt-out stopped responding earlier in this run.");
           else {
             const ok = await act('optout', 'Opting out', async () => { const v = await stopMarketing(n.id); if (v === 'already') n.result.optout = 'already'; return v; });
-            if (!ok && /unavailable/.test(n.errors.optout || '')) optoutDead = true;
+            if (!ok && /unavailable|timeout/.test(n.errors.optout || '')) optoutDead = true;
           }
         }
-        if (!state.cancel && A.stop && n.id === g.stopId && n.result.stop === 'pending') {
-          if (stopsSent >= STOP_CAP) skip('stop', 'The STOP limit was reached. Other actions can still run.');
+        if (!state.cancel && n.result.stop === 'pending' && n.id === g.stopId) {
+          const promoOnly = n.plan === 'marketing';
+          if (stopsSent >= STOP_CAP) skip('stop', 'The daily STOP limit was reached. Other actions still ran.');
+          else if (promoOnly && !(await hasPromoOnlyButton(n.id))) skip('stop', 'This number also sends you updates and has no promotions-only unsubscribe button, so no STOP was sent.');
           else {
-            const ok = await act('stop', 'Sending STOP', () => sendStop(n.id), 20000);
+            const ok = await act('stop', 'Sending STOP', () => sendStop(n.id, { promoOnly }), 20000);
             if (ok) stopsSent++;
             state.history.stopDay = today; state.history.stopCount = dayStops + stopsSent;
             saveHistory();
@@ -902,21 +993,25 @@
             }
           }
         }
-        if (!state.cancel && A.report) {
+        if (!state.cancel && n.result.report === 'pending') {
           if (reportDead) skip('report', 'Skipped after an earlier report timed out.');
-          else { await act('report', 'Reporting', () => reportNumber(n.id)); if (n.result.report === 'timeout') reportDead = true; }
+          else if (reportsSent >= REPORT_CAP) skip('report', 'The daily report limit was reached. Other actions still ran.');
+          else {
+            const ok = await act('report', 'Reporting', () => reportNumber(n.id));
+            if (ok) { reportsSent++; state.history.reportDay = today; state.history.reportCount = dayReports + reportsSent; }
+            if (n.result.report === 'timeout') reportDead = true;
+          }
         }
-        if (!state.cancel && A.block) {
+        if (!state.cancel && n.result.block === 'pending') {
           if (n.blocked) n.result.block = 'already';
           else await act('block', 'Blocking', async () => { await W.blocklist.blockContact(n.id); n.blocked = true; });
         }
-        if (!state.cancel && A.archive && !A.del) {
+        if (!state.cancel && n.result.archive === 'pending') {
           await act('archive', 'Archiving', async () => {
             try { await W.chat.archive(n.id); }
             catch (e) { if (/already/i.test(String(e?.message || e))) { n.result.archive = 'already'; return; } throw e; }
           });
         }
-        if (!state.cancel && A.del) await act('del', 'Deleting', () => W.chat.delete(n.id));
         const unstarted = !resultKeys.some((k) => actionSucceeded(n.result[k]) || n.result[k] === false || n.result[k] === 'timeout');
         if (state.cancel) {
           for (const k of resultKeys) if (n.result[k] === 'pending') n.result[k] = 'cancelled';
@@ -940,7 +1035,7 @@
     sum.reportDead = reportDead; sum.optoutDead = optoutDead;
     sum.top = successful.filter((g) => g.kind === 'biz').map((g) => ({ name: g.name, seen: seenCount(g) })).sort((a, b) => b.seen - a.seen).slice(0, 5);
     if (sum.numbersDone) state.history.runs.push({ ts: sum.ts, businesses: sum.businessesDone, numbers: sum.numbersDone,
-      optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, archive: sum.archive, del: sum.del });
+      optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, archive: sum.archive });
     const bd = state.history.bounced || (state.history.bounced = {});
     for (const g of successful) {
       if (g.kind !== 'biz') continue;
@@ -951,7 +1046,7 @@
     }
     saveHistory();
     state.reportSel = {}; state.reportStatus = null;
-    for (const g of successful) state.reportSel[g.key] = g.kind === 'biz' && g.promo;
+    for (const g of successful) state.reportSel[g.key] = wallEligible(g);
     state.results = sum; state.running = false; state.progress = null; state.activeId = null; state.cancel = false; state.view = 'list';
     refreshBadge();
     render(true);
@@ -960,10 +1055,14 @@
     if (state.history.autoReport) submitReport();
   }
 
+  // Only official WhatsApp business accounts, never someone in your contacts, and only when
+  // a number that purely sends promotions was actually handled, can go to the public Wall.
+  const wallEligible = (g) => g.kind === 'biz' && g.promo && !g.saved && (g.verified || g.enterprise)
+    && g.numbers.some((n) => n.plan === 'full' && numberSucceeded(n));
   function reportItems() {
-    return state.groups.filter((g) => g.done && g.kind === 'biz' && g.promo && g.numbers.some(numberSucceeded) && state.reportSel[g.key]).map((g) => ({
-      name: g.name, is_api: !!g.isApi, category: g.category, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
-      numbers: g.numbers.filter(numberSucceeded).map((n) => n.hash).filter(Boolean).slice(0, 20),
+    return state.groups.filter((g) => g.done && wallEligible(g) && state.reportSel[g.key]).map((g) => ({
+      name: g.name, is_api: true, category: g.category, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
+      numbers: g.numbers.filter((n) => n.plan === 'full' && numberSucceeded(n)).map((n) => n.hash).filter(Boolean).slice(0, 20),
     }));
   }
   function submitReport() {
@@ -1006,7 +1105,7 @@
     x.fillStyle = '#e9edef'; x.font = `700 166px ${CARD_DISPLAY}`; x.fillText(String(sum.numbersDone || 0), 80, 280);
     x.font = `500 32px ${FONT}`; x.fillText(`numbers handled across ${sum.businessesDone || 0} ${sum.businessesDone === 1 ? 'business' : 'businesses'}`, 88, 328);
     x.fillStyle = '#8696a0'; x.font = `500 24px ${FONT}`;
-    const stats = [['optout', 'opt-outs'], ['stop', 'STOP replies'], ['report', 'reports'], ['block', 'blocks'], ['archive', 'archived'], ['del', 'deleted']].filter(([k]) => sum[k]).map(([k, name]) => `${sum[k]} ${name}`).join(' · ');
+    const stats = [['optout', 'opt-outs'], ['stop', 'STOP replies'], ['report', 'reports'], ['block', 'blocks'], ['archive', 'archived']].filter(([k]) => sum[k]).map(([k, name]) => `${sum[k]} ${name}`).join(' · ');
     x.fillText(stats || 'No actions completed', 88, 371, 1024);
     if (sum.stopped) { x.font = `500 20px ${FONT}`; x.fillText('Stopped early. Only completed actions are counted.', 88, 405); }
     x.font = `600 14px ${CARD_DISPLAY}`; x.fillText('NUMBERS THESE BUSINESSES HAVE USED ON ME', 88, 450);
@@ -1166,6 +1265,7 @@
   #bouncer-root .bz-detail-content { grid-column: 2 / -1; min-width: 0; }
   #bouncer-root .bz-action-status { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 8px; }
   #bouncer-root .bz-action-status small { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+  #bouncer-root .bz-plan-note { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
   #bouncer-root .bz-row-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; margin-top: 8px; }
   #bouncer-root .bz-state-mark { font-size: 15px; font-weight: 600; color: var(--muted); }
   #bouncer-root .bz-state-mark.complete { color: var(--ok); }
@@ -1311,7 +1411,7 @@
     syncing: ['Syncing', 'WhatsApp is still loading your chats. Give it a moment.'],
     'inject-failed': ['Couldn\'t connect', 'Reload this tab and try again.'],
   };
-  const TAG_WORDS = { optout: ['WA opt-out', 'WA opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], archive: ['Archived', 'Archive'], del: ['Deleted', 'Delete'] };
+  const TAG_WORDS = { optout: ['WA opt-out', 'WA opt-out'], stop: ['STOP', 'STOP'], report: ['Reported', 'Report'], block: ['Blocked', 'Block'], archive: ['Archived', 'Archive'] };
   const CAT_LABEL = { promo: ['Promotional', 'hot'], guess: ['Looks promotional', 'hot'], txn: ['Alerts only', ''], api: ['', ''], smb: ['Small business', ''], unknown: ['Not in contacts', ''] };
 
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -1407,7 +1507,7 @@
     else if (act === 'scan') scan();
     else if (act === 'run') {
       const targets = selectedGroups();
-      const risky = targets.filter((g) => !g.promo);
+      const risky = targets.filter((g) => !g.promo || g.saved);
       if (risky.length && !state.armed) { state.armed = true; render(); setTimeout(() => { if (state.armed) { state.armed = false; render(); } }, 6000); return; }
       state.armed = false;
       run();
@@ -1628,6 +1728,8 @@
     const labels = [
       g.known ? `<span class="bz-lab warn">On the Wall · ${g.known.people}</span>` : '',
       showCat && catText && !(g.known && catCls === 'hot') ? `<span class="bz-lab ${catCls}">${catText}</span>` : '',
+      g.saved ? '<span class="bz-lab">In your contacts</span>' : '',
+      g.sendsUpdates && g.promo && !g.done ? '<span class="bz-lab">Also sends updates</span>' : '',
       g.optedOut ? '<span class="bz-lab">Opted out</span>' : '',
       allBlocked && !g.done ? '<span class="bz-lab">Blocked</span>' : '',
     ].join('');
@@ -1665,7 +1767,9 @@
 
   function renderResultTags(n) {
     if (!n.result) return '';
-    const names = { optout: 'WhatsApp opt-out', stop: 'STOP reply', report: 'Report', block: 'Block', archive: 'Archive', del: 'Delete' };
+    if (n.result.kept) return `<span class="bz-action-status"><span>No action</span><span class="bz-st">Left alone</span><small>${n.result.kept === 'mixed' ? 'This number also sends you updates, and no marketing-only action was available.' : 'This number sends you updates like orders, bookings or OTPs.'}</small></span>`;
+    if (n.plan === null && !Object.keys(n.result).length) return '<span class="bz-action-status"><span>No action</span><span class="bz-st">Skipped</span><small>No messages from this number in the chosen period.</small></span>';
+    const names = { optout: 'WhatsApp opt-out', stop: 'STOP reply', report: 'Report', block: 'Block', archive: 'Archive' };
     return resultKeys.map((k) => {
       const v = n.result[k]; if (v === undefined) return '';
       const label = v === true ? 'Done' : v === 'already' ? 'Already done' : v === 'undone' ? 'Undone' : v === 'pending' ? 'Waiting' : v === 'running' ? 'Working…' : v === 'cancelled' ? 'Not run' : v === 'skipped' ? 'Skipped' : v === 'timeout' ? 'Timed out' : 'Failed';
@@ -1673,7 +1777,7 @@
       const reason = n.errors?.[k];
       const undo = k === 'block' && v === true && !state.running ? `<button class="bz-undo" data-act="unblock" data-id="${esc(n.id)}">Unblock</button>` : '';
       return `<span class="bz-action-status"><span>${names[k]}</span><span class="bz-st ${cls}">${label}</span>${undo}${reason ? `<small>${esc(reason)}</small>` : ''}</span>`;
-    }).join('');
+    }).join('') + (n.plan === 'marketing' ? '<small class="bz-plan-note">This number also sends you updates, so only marketing opt-outs ran.</small>' : '');
   }
 
   function renderUnknown(list) {
@@ -1693,16 +1797,16 @@
     }
     if (status() !== 'ready' || !state.scanned || state.scanning || state.scanError) return '';
     const targets = selectedGroups();
-    const risky = targets.filter((g) => !g.promo);
+    const risky = targets.filter((g) => !g.promo || g.saved);
     const n = targets.reduce((s, g) => s + g.numbers.length, 0);
     const A = state.actions;
-    const parts = [(A.optout || A.stop) && 'opt out', A.report && 'report', A.block && 'block', A.archive && !A.del && 'archive', A.del && 'delete'].filter(Boolean);
+    const parts = [(A.optout || A.stop) && 'opt out', A.report && 'report', A.block && 'block', A.archive && 'archive'].filter(Boolean);
     const what = parts.length ? parts.join(' · ') : 'No actions selected';
     let label = !targets.length ? 'Select a business' : targets.length === 1 ? `Bounce ${clip(targets[0].name, 22)}` : `Bounce ${targets.length} businesses`;
     if (state.armed) label = `Sure? Bounce ${targets.length === 1 ? clip(targets[0].name, 18) : `${targets.length} businesses`}`;
     const hint = state.armed
-      ? `${risky.length === 1 ? `<b>${esc(risky[0].name)}</b> doesn't` : `${risky.length} of these don't`} look promotional. Click again to bounce anyway.${A.del ? ' Deleted chats can\'t be recovered.' : ''}`
-      : `${esc(what)} · <button data-act="setup">Change</button>${A.del || A.report ? `<br><span class="bz-warn">${A.del ? 'Deleted chats can\'t be recovered' : ''}${A.del && A.report ? ', and ' : ''}${A.report ? 'reports can\'t be withdrawn' : ''}. Blocks can be undone afterwards.</span>` : ''}`;
+      ? `${risky.length === 1 ? `<b>${esc(risky[0].name)}</b> ${risky[0].saved ? 'is saved in your contacts' : "doesn't look promotional"}` : `${risky.length} of these are saved contacts or don't look promotional`}. Click again to bounce anyway.`
+      : `${esc(what)} · <button data-act="setup">Change</button>${A.report ? `<br><span class="bz-warn">Reports can't be withdrawn. Blocks and archives can be undone.</span>` : ''}`;
     return `<div class="bz-foot">
       <button class="bz-btn ${state.armed ? 'armed' : ''}" data-act="run" ${targets.length && parts.length ? '' : 'disabled'}>${esc(label)}${n > targets.length && !state.armed ? `<span class="n">${plural(n, 'number')}</span>` : ''}</button>
       <div class="bz-hint">${hint}</div>
@@ -1716,15 +1820,16 @@
     const stats = [
       A.optout ? `<b>${s.optout}</b> WhatsApp opt-outs` : '', A.stop ? `<b>${s.stop}</b> STOP replies` : '',
       A.report ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '',
-      A.archive && !A.del ? `<b>${s.archive}</b> archived` : '', A.del ? `<b>${s.del}</b> deleted` : '',
+      A.archive ? `<b>${s.archive}</b> archived` : '',
     ].filter(Boolean).join(' · ');
     const rs = state.reportStatus;
-    const eligible = groups.filter((g) => g.kind === 'biz' && g.promo && g.numbers.some(numberSucceeded));
+    const eligible = groups.filter(wallEligible);
     const selN = eligible.filter((g) => state.reportSel[g.key]).length;
     return `<div class="bz-done">
         <div class="bz-stamp">${resultTitle(s)}</div>
         <div class="bz-hero-row"><div class="bz-big ink">${s.numbersDone}</div><div class="bz-lead">${s.numbersDone === 1 ? 'number' : 'numbers'} handled across ${s.businessesDone} ${bizWord(s.businessesDone)}.</div></div>
         <div class="bz-stats">${stats}</div>
+        ${s.optoutUnavailable ? `<div class="bz-result-note">WhatsApp hasn't turned on its own marketing opt-out for your account yet, so it was skipped.</div>` : ''}
         <div class="bz-result-note">${s.stopped ? 'Stopped early. Completed actions stay in place.' : !s.numbersDone ? 'No completed actions were confirmed. Check Details before trying again.' : s.completed !== s.businesses ? 'Some actions could not finish. Check the details below.' : 'All requested actions completed.'}</div>
       </div>
       ${s.numbersDone ? `<div class="bz-share-actions"><button class="bz-btn paper" data-act="post-x">Post to X ↗</button><button class="bz-btn ghost" data-act="card">Save share card</button></div>
@@ -1799,22 +1904,18 @@
     report: '<path d="M5 21V4"/><path d="M5 4h12l-2 3.5 2 3.5H5"/>',
     block: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
     archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/>',
-    del: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>',
   };
   const icon = (k) => `<svg class="bz-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
   const CHOICES = [
     ['unsub', 'Opt out', "Two at once: WhatsApp's own stop-marketing setting, and a STOP sent to the business.", 'Reversible', 'good'],
-    ['report', 'Report', "Lowers the number's rating until Meta throttles it.", "Can't be undone", 'warn'],
+    ['report', 'Report', 'Sends their latest message to WhatsApp for review.', "Can't be undone", 'warn'],
     ['block', 'Block', 'The number can never message you again.', 'Reversible', 'good'],
-    ['archive', 'Archive', 'Out of your list. Back if they write again.', 'Reversible', 'good'],
-    ['del', 'Delete', 'The chat is gone from all your devices.', "Can't be undone", 'warn'],
+    ['archive', 'Archive', 'Out of your chat list. Unarchive any time.', 'Reversible', 'good'],
   ];
   const choiceOn = (key) => (key === 'unsub' ? !!(state.actions.optout || state.actions.stop) : !!state.actions[key]);
   function setChoice(key, on) {
     if (key === 'unsub') { state.actions.optout = on; state.actions.stop = on; }
     else state.actions[key] = on;
-    if (key === 'del' && on) state.actions.archive = false;
-    if (key === 'archive' && on) state.actions.del = false;
   }
   function renderSetup() {
     return `
@@ -1836,7 +1937,7 @@
     const A = state.actions;
     const n = CHOICES.filter(([k]) => choiceOn(k)).length;
     return `<div class="bz-foot"><button class="bz-btn paper" data-act="setup-done" ${n ? '' : 'disabled'}>${n ? 'Continue' : 'Pick at least one'}</button>
-      <div class="bz-hint">${A.del ? "Deleted chats can't be recovered. " : ''}${A.report ? "Reports can't be withdrawn." : ''}${!A.del && !A.report ? 'Everything here can be undone.' : ''}</div></div>`;
+      <div class="bz-hint">${A.report ? "Reports can't be withdrawn. Everything else can be undone." : 'Everything here can be undone.'}</div></div>`;
   }
 
   function renderChartFoot() {
@@ -1881,7 +1982,7 @@
     const c = drawChartCard(rows);
     const a = document.createElement('a');
     a.href = c.toDataURL('image/png');
-    a.download = `bouncer-bounced-${new Date().toISOString().slice(0, 10)}.png`;
+    a.download = `dear-customer-history-${new Date().toISOString().slice(0, 10)}.png`;
     document.body.appendChild(a); a.click(); a.remove();
   }
 
@@ -1916,6 +2017,14 @@
     if (!state.scanned && !state.scanning) scan();   // read-only; paints the badge
   }
 
-  window.__bouncer = { state, scan, run, diag, requestCommunity, version: VERSION };
+  // Debug handle for support and tests. Off unless switched on with
+  // localStorage.setItem('dearcustomer.debug', '1'), and it can never start a run.
+  const debugHandle = { state, scan, diag, requestCommunity, version: VERSION };
+  try {
+    Object.defineProperty(window, '__bouncer', {
+      configurable: true,
+      get() { let on = false; try { on = window.localStorage.getItem('dearcustomer.debug') === '1'; } catch (_) {} return on ? debugHandle : { version: VERSION }; },
+    });
+  } catch (_) {}
   boot();
 })();

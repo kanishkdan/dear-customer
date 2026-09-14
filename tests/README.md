@@ -10,7 +10,7 @@ Run from the repository root:
 node --test tests/engine.test.cjs
 ```
 
-The harness loads the production engine with browser rendering and boot replaced. It exercises selection, ignore recovery, cancellation between actions, partial/failed outcomes, timeouts, STOP limits, history, Wall eligibility and share counts. WhatsApp operations are mocked.
+The harness loads the production engine with browser rendering and boot replaced. It exercises selection, ignore recovery, cancellation between actions, partial/failed outcomes, timeouts, STOP and report limits, history, Wall eligibility and share counts, plus the 1.0.3 safeguards: saved contacts never pre-ticked, marketing-only actions for senders that also send updates, update-only and inactive numbers left alone, the opt-out gate, old stored delete choices stripped, no saves before history loads, and a debug handle that can't start a run. WhatsApp operations are mocked.
 
 ## Browser checks and screenshots
 

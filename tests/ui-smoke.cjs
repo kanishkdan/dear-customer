@@ -49,6 +49,8 @@ async function seed(page) {
       if(m.type==='report'){window.testReports.push(m.payload);reply('reported',{ok:true,accepted:m.payload.length,url:'https://dearcustomer.kanishkdan.com'});}
     });
   });
+  // The debug handle the checks read is off unless this flag is set.
+  await page.evaluate(()=>Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:(k)=>k==='dearcustomer.debug'?'1':null,setItem(){},removeItem(){}}}));
   await page.addScriptTag({path:path.join(ROOT,'src/keywords.js')});
   await page.addScriptTag({path:path.join(ROOT,'src/engine.js')});
   await page.evaluate(()=>postMessage({__bouncer:true,dir:'to-page',type:'open'},'*'));
@@ -65,6 +67,11 @@ const screenshot = (page,name)=>page.screenshot({path:path.join(OUT, name+'.png'
   const page=await context.newPage(); page.on('pageerror',e=>errors.push(e.message));
   try {
     await seed(page); await screenshot(page,'01-setup');
+    // 1.0.3: no delete choice, and the debug handle can't start a run.
+    const setupText=await page.locator('#bouncer-root').innerText();
+    for (const t of ['Opt out','Report','Block','Archive']) assert.match(setupText,new RegExp(t));
+    assert.doesNotMatch(setupText,/Delete/);
+    assert.equal(await page.evaluate(()=>typeof window.__bouncer.run),'undefined');
     await button(page,'setup-done').click(); await screenshot(page,'02-list');
     await row(page,'zorblax pet foods').locator('[data-act="expand-row"]').click();
     assert.equal(await page.evaluate(()=>window.__bouncer.state.expanded),false);
@@ -148,6 +155,6 @@ const screenshot = (page,name)=>page.screenshot({path:path.join(OUT, name+'.png'
     assert.equal(await page.locator('.bz-panel').evaluate(el=>el.getBoundingClientRect().right<=innerWidth),true);
     await screenshot(page,'09-compact');
     assert.deepEqual(errors,[]);assert.deepEqual(requests,[]);
-    console.log(JSON.stringify({ok:true,checks:['setup','restore all','ignore selection guard','row expansion','stable progress DOM','stable scroll','results reset scroll','X draft','PNG download','unblock','Wall payload','partial','failure','cancel','compact'],screenshots:OUT,networkRequests:requests.length,pageErrors:errors.length},null,2));
+    console.log(JSON.stringify({ok:true,checks:['setup','no delete','debug handle has no run','restore all','ignore selection guard','row expansion','stable progress DOM','stable scroll','results reset scroll','X draft','PNG download','unblock','Wall payload','partial','failure','cancel','compact'],screenshots:OUT,networkRequests:requests.length,pageErrors:errors.length},null,2));
   } finally {await context.close();await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS reports (
   updated_at INTEGER NOT NULL,
   count      INTEGER NOT NULL DEFAULT 1,
   category   TEXT,            -- what the business was to the reporter: promo | guess | txn | api | smb
+  net_hash   TEXT,            -- keyed hash of the reporter's network (IPv4 /24, IPv6 /48); the address is never stored
   PRIMARY KEY (install_id, name_key)
 );
 CREATE INDEX IF NOT EXISTS idx_reports_key ON reports(name_key);
@@ -22,3 +23,10 @@ CREATE TABLE IF NOT EXISTS numbers (
   PRIMARY KEY (name_key, number_hash, install_id)
 );
 CREATE INDEX IF NOT EXISTS idx_numbers_key ON numbers(name_key);
+
+-- Businesses hidden from the public Wall, for example after a removal request.
+CREATE TABLE IF NOT EXISTS suppressed (
+  name_key   TEXT PRIMARY KEY,
+  reason     TEXT,
+  created_at INTEGER NOT NULL
+);

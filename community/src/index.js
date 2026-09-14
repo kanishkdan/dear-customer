@@ -91,6 +91,41 @@ async function purge(request, ctx) {
 }
 
 // ------------------------------------------------------------------ report
+// ------------------------------------------------------------ network key
+// The Wall counts reporters by the network a contribution came from, not only by the
+// random install id a browser makes up, so one person can't pose as three. Only a keyed
+// hash of the network part of the address is stored: IPv4 /24, IPv6 /48. Many people
+// share a mobile network address, so the Wall fills slower. That is the safe direction
+// to be wrong in.
+function networkPrefix(ip) {
+  if (!ip || ip === 'unknown') return null;
+  if (ip.includes('.')) {
+    const v4 = ip.slice(ip.lastIndexOf(':') + 1).split('.');
+    return v4.length === 4 ? `${v4[0]}.${v4[1]}.${v4[2]}.0/24` : null;
+  }
+  if (!ip.includes(':')) return null;
+  const [head, tail] = ip.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail === undefined ? null : (tail ? tail.split(':') : []);
+  const groups = t === null ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+  return groups.slice(0, 3).map((g) => (g || '0').toLowerCase().replace(/^0+(?=.)/, '')).join(':') + '::/48';
+}
+
+async function networkHash(env, ip) {
+  const prefix = networkPrefix(ip);
+  // Without a salt or an address, every contribution shares one bucket, so nothing
+  // unverifiable can ever reach the threshold.
+  if (!prefix || !env.IP_SALT) return 'unkeyed';
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.IP_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(prefix));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Shared by every threshold check. Rows from before network hashing count together as one
+// network. Suppressed businesses, hidden after a removal request, never appear.
+const PROMO_ROW = "(category IS NULL OR category IN ('promo', 'guess'))";
+const NOT_SUPPRESSED = 'name_key NOT IN (SELECT name_key FROM suppressed)';
+
 async function report(request, env, ctx) {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
   const rl = await env.RL.limit({ key: ip });
@@ -105,19 +140,21 @@ async function report(request, env, ctx) {
   if (!UUID_RE.test(install)) return json({ error: 'bad_install' }, 400);
   if (!Array.isArray(body.items) || !body.items.length) return json({ error: 'no_items' }, 400);
   if (body.items.length > MAX_ITEMS) return json({ error: 'too_many_items' }, 400);
+  const net = await networkHash(env, ip);
 
   const now = Math.floor(Date.now() / 1000);
   const stmts = [];
   const insReport = env.DB.prepare(`
-    INSERT INTO reports (install_id, name_key, name, is_api, cc, created_at, updated_at, count, category)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1, ?7)
+    INSERT INTO reports (install_id, name_key, name, is_api, cc, created_at, updated_at, count, category, net_hash)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1, ?7, ?8)
     ON CONFLICT(install_id, name_key) DO UPDATE SET
       updated_at = excluded.updated_at,
       count = count + 1,
       name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE name END,
       is_api = MAX(is_api, excluded.is_api),
       cc = COALESCE(excluded.cc, cc),
-      category = COALESCE(excluded.category, category)`);
+      category = COALESCE(excluded.category, category),
+      net_hash = COALESCE(net_hash, excluded.net_hash)`);
   const insNumber = env.DB.prepare(`
     INSERT OR IGNORE INTO numbers (name_key, number_hash, install_id, created_at) VALUES (?1, ?2, ?3, ?4)`);
 
@@ -129,10 +166,13 @@ async function report(request, env, ctx) {
     const key = normName(name);
     const hasLetter = /\p{L}/u.test(name);
     if (key.length < 2 || !hasLetter) { rejected.push(name || '(empty)'); continue; }
+    // Only official WhatsApp business accounts go on the Wall, never individuals running a
+    // shop on the Business app.
+    if (!raw.is_api) { rejected.push(name); continue; }
     const isApi = raw.is_api ? 1 : 0;
     const cc = /^\d{1,3}$/.test(String(raw.cc || '')) ? String(raw.cc) : null;
     const category = ['promo', 'guess', 'txn', 'api', 'smb'].includes(raw.category) ? raw.category : null;
-    stmts.push(insReport.bind(install, key, name, isApi, cc, now, category));
+    stmts.push(insReport.bind(install, key, name, isApi, cc, now, category, net));
     const hashes = Array.isArray(raw.numbers) ? raw.numbers.filter((h) => typeof h === 'string' && HASH_RE.test(h)).slice(0, MAX_HASHES) : [];
     for (const h of hashes) stmts.push(insNumber.bind(key, h.toLowerCase(), install, now));
     accepted++;
@@ -151,16 +191,20 @@ async function totalsRow(env) {
   const min = minReporters(env);
   const t = await env.DB.prepare(`
     WITH promo AS (
-      SELECT name_key, COUNT(*) AS people
+      SELECT name_key,
+        COUNT(DISTINCT install_id) AS installs,
+        COUNT(DISTINCT COALESCE(net_hash, 'legacy')) AS nets
       FROM reports
-      WHERE category IS NULL OR category IN ('promo', 'guess')
+      WHERE ${PROMO_ROW} AND ${NOT_SUPPRESSED}
       GROUP BY name_key
+    ), listed AS (
+      SELECT name_key FROM promo WHERE installs >= ?1 AND nets >= ?1
     )
     SELECT
       (SELECT COUNT(DISTINCT install_id) FROM reports) AS people,
-      (SELECT COUNT(*) FROM promo WHERE people >= ?1) AS businesses,
-      (SELECT COUNT(DISTINCT name_key) FROM reports) - (SELECT COUNT(*) FROM promo WHERE people >= ?1) AS pending,
-      (SELECT COUNT(DISTINCT number_hash) FROM numbers WHERE name_key IN (SELECT name_key FROM promo WHERE people >= ?1)) AS numbers,
+      (SELECT COUNT(*) FROM listed) AS businesses,
+      (SELECT COUNT(DISTINCT name_key) FROM reports) - (SELECT COUNT(*) FROM listed) AS pending,
+      (SELECT COUNT(DISTINCT number_hash) FROM numbers WHERE name_key IN (SELECT name_key FROM listed)) AS numbers,
       (SELECT COALESCE(SUM(count), 0) FROM reports) AS reports`).bind(min).first();
   return { people: t.people || 0, businesses: t.businesses || 0, pending: Math.max(0, t.pending || 0), numbers: t.numbers || 0, reports: t.reports || 0, min };
 }
@@ -197,14 +241,18 @@ async function listData(env) {
     env.DB.prepare(`
       SELECT r.name_key AS key,
         (SELECT name FROM reports r2 WHERE r2.name_key = r.name_key GROUP BY name ORDER BY COUNT(*) DESC, MAX(updated_at) DESC LIMIT 1) AS name,
-        COUNT(*) AS people,
-        SUM(CASE WHEN category IS NULL OR category IN ('promo', 'guess') THEN 1 ELSE 0 END) AS promo_people,
+        COUNT(DISTINCT install_id) AS people,
+        MIN(
+          COUNT(DISTINCT CASE WHEN ${PROMO_ROW} THEN install_id END),
+          COUNT(DISTINCT CASE WHEN ${PROMO_ROW} THEN COALESCE(net_hash, 'legacy') END)
+        ) AS promo_people,
         SUM(count) AS reports,
         MAX(is_api) AS is_api,
         MIN(created_at) AS first_seen,
         MAX(updated_at) AS last_seen,
         (SELECT COUNT(DISTINCT number_hash) FROM numbers n WHERE n.name_key = r.name_key) AS numbers
       FROM reports r
+      WHERE r.${NOT_SUPPRESSED}
       GROUP BY r.name_key
       HAVING promo_people >= ?1
       ORDER BY promo_people DESC, people DESC, numbers DESC, reports DESC
@@ -214,8 +262,9 @@ async function listData(env) {
       SELECT DISTINCT n.number_hash, n.name_key FROM numbers n
       WHERE n.name_key IN (
         SELECT name_key FROM reports
-        WHERE category IS NULL OR category IN ('promo', 'guess')
-        GROUP BY name_key HAVING COUNT(*) >= ?1
+        WHERE ${PROMO_ROW} AND ${NOT_SUPPRESSED}
+        GROUP BY name_key
+        HAVING COUNT(DISTINCT install_id) >= ?1 AND COUNT(DISTINCT COALESCE(net_hash, 'legacy')) >= ?1
       ) LIMIT 20000`).bind(minReporters(env)).all(),
   ]);
   const hashMap = {};
@@ -310,9 +359,7 @@ const ACTIONS = [
    "Reports the selected sender to WhatsApp with message context. WhatsApp decides what action to take."],
   ['M6 6l12 12|', 'Block', 'Stops messages from that number, including useful updates. Review the sender first.'],
   ['M3 4h18v4H3z|M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8|M10 12h4', 'Archive',
-   'Out of your chat list. It comes back if they write again.'],
-  ['M4 7h16|M9 7V4h6v3|M6 7l1 13h10l1-13|M10 11v6M14 11v6', 'Delete',
-   'Gone from every device. Off by default, because it cannot be undone.'],
+   'Out of your chat list. Unarchive any time.'],
 ];
 const actionIcon = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths.split('|').filter(Boolean).map((d) => d === 'M6 6l12 12' ? `<circle cx="12" cy="12" r="8.5"/><path d="${d}"/>` : `<path d="${d}"/>`).join('')}</svg>`;
 
@@ -451,7 +498,7 @@ async function landingPage(env) {
     <div class="points">
       <div class="point"><i>—</i><div><b>Upload private chats to Dear Customer.</b> Analysis runs in your browser. Choosing Report can send message context to WhatsApp. Wall contributions contain business names and hashed sender numbers; sharing is optional.</div></div>
       <div class="point"><i>—</i><div><b>Run an outreach campaign.</b> Opt-out requests and STOP replies go to selected existing senders. STOP replies are capped and can be switched off.</div></div>
-      <div class="point"><i>—</i><div><b>Name a business on one report.</b> The Wall needs ${totals.min} different people before anyone is listed.</div></div>
+      <div class="point"><i>—</i><div><b>Name a business on one person's say-so.</b> The Wall needs ${totals.min} separate users on different networks before a business is listed, and only official WhatsApp business accounts can be added.</div></div>
     </div>
   </section>
 </div>` + foot(), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
@@ -477,7 +524,7 @@ function privacyPage(env) {
   <p>Dear Customer runs inside your browser. It processes recent WhatsApp Web messages, sender names, phone numbers and chat metadata locally to identify business senders and promotional messages. Message text can include personal communications and sensitive information already present in those chats; it is not uploaded to the Dear Customer service. You choose which senders and actions to run, whether to contribute business names and hashed numbers to the Wall, open an X draft containing aggregate results, or save an image card to share yourself.</p>
 
   <h2>Actions through WhatsApp</h2>
-  <p>Selected actions use your existing WhatsApp Web session. Opt-out requests and STOP replies are sent through WhatsApp to the selected business. Choosing Report uses WhatsApp's reporting feature and can send the selected sender's message context to WhatsApp. Block, archive and delete requests are also handled by WhatsApp. These actions are separate from contributing to the Wall and are subject to WhatsApp's own privacy policy.</p>
+  <p>Selected actions use your existing WhatsApp Web session. Opt-out requests and STOP replies are sent through WhatsApp to the selected business. Choosing Report uses WhatsApp's reporting feature and can send the selected sender's message context to WhatsApp. Block and archive requests, and delete requests from versions before 1.0.3, are also handled by WhatsApp. These actions are separate from contributing to the Wall and are subject to WhatsApp's own privacy policy.</p>
 
   <h2>What the extension stores on your computer</h2>
   <ul>
@@ -503,7 +550,7 @@ function privacyPage(env) {
   <p><b>Save share card</b> and <b>Save chart</b> create image files locally. They can include business names and counts, but no message content or phone numbers. Dear Customer does not upload these files. You choose where to share them.</p>
 
   <h2>What this website keeps</h2>
-  <p>The reports above, including contribution counts and timestamps, are stored in a database for as long as the list exists. A business is only named on the public page once three different installations have reported it for promotional messages; below that its reports are stored but never published, and the numbers it used are not published either. The public page shows business names and counts. Hashes are published in <code>list.json</code> so the extension can match numbers. Hashing does not guarantee anonymity: someone can hash a candidate phone number and compare it with the published value. Our hosting provider, Cloudflare, processes request metadata, including IP addresses, for delivery, logs, abuse prevention and rate limiting.</p>
+  <p>The reports above, including contribution counts and timestamps, are stored in a database for as long as the list exists. A business is only named on the public page once at least three separate installations, on different networks, have reported it for promotional messages, and only official WhatsApp business accounts can be listed; below that its reports are stored but never published, and the numbers it used are not published either. The public page shows business names and counts. Hashes are published in <code>list.json</code> so the extension can match numbers. Hashing does not guarantee anonymity: someone can hash a candidate phone number and compare it with the published value. Our hosting provider, Cloudflare, processes request metadata, including IP addresses, for delivery, logs, abuse prevention and rate limiting. To tell networks apart, each contribution also stores a keyed hash of the network part of the IP address it came from; the address itself is not stored. Businesses can be hidden after a removal request.</p>
 
   <h2>Limited Use</h2>
   <p>Dear Customer's use of information received through Chrome extension permissions complies with the Chrome Web Store User Data Policy, including its Limited Use requirements. Data is used only to provide the extension's disclosed spam-management, history and optional sharing features. It is not sold, used for advertising or unrelated profiling, or used to determine creditworthiness or for lending. Transfers occur only as needed for these disclosed features, with the user's choices described above, or when required for security or by law. The developer does not receive or read private message content through the extension.</p>
@@ -603,7 +650,7 @@ async function wallPage(env) {
 `) + topbar('wall')
  + `<div class="wrap">
   <h1>Wall of Shame</h1>
-  <p class="sub">Ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is named here only once ${data.totals.min} different people have bounced it</b>, so nobody is listed on one person's say-so. Reported anonymously by people running <a href="/">Dear Customer</a>.</p>
+  <p class="sub">Ranked by how many people bounced them for promotional WhatsApp messages, and how many different numbers they burned doing it. <b>A business is named here only once ${data.totals.min} separate users, on different networks, have bounced it</b>, and only official WhatsApp business accounts can be listed. Reported anonymously by people running <a href="/">Dear Customer</a>.</p>
   <div class="stats">
     <div class="stat"><div class="n">${data.totals.businesses}</div><div class="l">Listed</div>${S ? spark(S.businesses.cumulative) : ''}</div>
     <div class="stat"><div class="n">${data.totals.numbers}</div><div class="l">Numbers burned</div>${S ? spark(S.numbers.cumulative) : ''}</div>
@@ -620,7 +667,7 @@ async function wallPage(env) {
     <a class="btn" href="/">How it works</a>
   </div>
   <div class="smallprint">
-    <p><b>What's stored.</b> The business name exactly as WhatsApp shows it, a SHA-256 hash of each number it used, whether it's an official Business Platform account, the country code, and a random id per browser so one person can't be counted twice. No phone numbers, no message content, no identity of the person reporting.</p>
+    <p><b>What's stored.</b> The business name exactly as WhatsApp shows it, a SHA-256 hash of each number it used, whether it's an official Business Platform account, the country code, a random id per browser, and a keyed hash of the network part of the reporter's IP address, so one person can't be counted three times. No phone numbers, no message content, no identity of the person reporting.</p>
     <p><b>Counting.</b> The main count is people who bounced the business for promotional messages, and it has to reach ${data.totals.min} before the business appears at all. A grey +N is people who bounced it for something else, such as alerts they didn't want. Only the promotional count ranks. Reports below the threshold are stored but never published, and the numbers they used are not published either.</p>
     <p><b>Listed and think it's wrong?</b> <a href="${esc(repo)}/issues/new?title=Removal%20request">Open a removal request</a>. Entries come from users, not from us.</p>
     <p><a href="/privacy">Privacy</a> · <a href="${esc(repo)}">Source on GitHub</a> · <code>GET /list.json</code> is public if you want the data. Not affiliated with WhatsApp or Meta.</p>
