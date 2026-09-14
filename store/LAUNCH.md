@@ -6,6 +6,11 @@ On 14 September 2026, the landing page was deployed with the live Add to Chrome 
 
 Replacement video: https://www.youtube.com/watch?v=OnTBwxdliI0. YouTube reports it playable with embedding allowed, and the live landing page uses this ID in its click-to-load player. The prior store video QauQmaZ6SiQ has been removed by its uploader. The store dashboard displayed a review-submission confirmation; the submitted video's URL has not been verified. The user is handling browser steps. GitHub publication of these local changes and a real WhatsApp acceptance run remain unverified.
 
+## 1.0.4 (in progress, do not upload while 1.0.3 is in review)
+
+- Results screen: each business's status line now says what happened per kind of number ("1 bounced · 1 opted out of marketing only · 1 left alone, sends you updates"; a single mixed sender reads "Marketing opt-out only, updates keep coming"). The pre-run "Also sends updates" label explains itself on hover.
+- Built as `dist/dear-customer-1.0.4.zip`. Upload once 1.0.3 is approved.
+
 ## 1.0.3 safety release (14 September 2026)
 
 Built as `dist/dear-customer-1.0.3.zip`; not yet uploaded to the store. Store screenshots in `store/screenshots/` were regenerated from the 1.0.3 UI (screenshot 1 no longer shows a Delete tile).

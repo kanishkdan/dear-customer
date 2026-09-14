@@ -153,6 +153,8 @@ test('a sender that also sends updates only gets marketing opt-outs; update-only
   assert.match(h.renderResultTags(m.numbers[0]), /only marketing opt-outs ran/);
   assert.deepEqual(h.calls.filter((c) => c[1] === s.numbers[0].id).map((c) => c[0]), ['optout', 'text', 'report', 'block', 'archive']);
   assert.equal(h.calls.some((c) => c[0] === 'delete'), false);
+  const done = h.renderDone();
+  assert.match(done, /1 bounced · 1 opted out of marketing only · 1 left alone, sends you updates/);
   // Myntra used a promotions-only number too, and that one was handled, so it can go to the Wall.
   assert.deepEqual(Array.from(h.reportItems(), (i) => i.name), ['Myntra', 'Spam']);
   assert.deepEqual(h.reportItems()[0].numbers, [inactive.replace('@c.us', '-hash').replace('Myntra-2', 'Myntra-2')].map(() => m.numbers[2].hash));

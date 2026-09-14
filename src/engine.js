@@ -15,7 +15,7 @@
   if (window.__bouncerLoaded) return;
   window.__bouncerLoaded = true;
 
-  const VERSION = '1.0.3';
+  const VERSION = '1.0.4';
   const SITE_URL = 'https://dearcustomer.kanishkdan.com';
   const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><path d="M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z" fill="#fff"/><rect x="262" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="566" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="452" y="418" width="120" height="34" rx="17" fill="#1c1c1e"/></svg>';
   const STOP_TEXT = 'STOP';
@@ -1792,10 +1792,26 @@
       <div class="bz-ledger bz-run-list">${groups.map((g, i) => renderRow(g, i + 1)).join('')}</div>`;
   }
   const outcomeMark = (key) => ({ complete: '✓', partial: '!', failed: '×', stopped: '—', running: '›', queued: '·' })[key];
+  // After a run, say what happened to each kind of number, so "Completed" on a sender
+  // that also sends you updates never reads as "blocked".
   function renderGroupStatus(g) {
     const o = outcome(g);
-    const good = g.numbers.filter(numberSucceeded).length;
-    return `<span class="bz-outcome ${o.key}">${esc(o.label)}</span>${g.done && g.numbers.length > 1 ? `<span class="bz-status-note">${good} of ${g.numbers.length} numbers handled</span>` : ''}`;
+    if (!g.done) return `<span class="bz-outcome ${o.key}">${esc(o.label)}</span>`;
+    const count = (fn) => g.numbers.filter((n) => n.result && fn(n)).length;
+    const full = count((n) => n.plan === 'full' && numberSucceeded(n));
+    const marketing = count((n) => n.plan === 'marketing' && numberSucceeded(n));
+    const keptUpdates = count((n) => n.result.kept === 'updates' || n.result.kept === 'mixed');
+    const keptOld = count((n) => n.result.kept === 'old');
+    const notDone = g.numbers.length - full - marketing - keptUpdates - keptOld;
+    const one = g.numbers.length === 1;
+    const parts = [
+      full && !one ? `${full} bounced` : '',
+      marketing ? (one ? 'Marketing opt-out only, updates keep coming' : `${marketing} opted out of marketing only`) : '',
+      keptUpdates ? (one ? 'Sends you updates' : `${keptUpdates} left alone, sends you updates`) : '',
+      keptOld ? (one ? 'Nothing recent to report' : `${keptOld} left alone, nothing recent`) : '',
+      !one && notDone > 0 ? `${notDone} not done` : '',
+    ].filter(Boolean).join(' · ');
+    return `<span class="bz-outcome ${o.key}">${esc(o.label)}</span>${parts ? `<span class="bz-status-note">${esc(parts)}</span>` : ''}`;
   }
   function updateRunUI() {
     if (!panel || !state.open || !state.running) return;
@@ -1833,7 +1849,7 @@
       g.known ? `<span class="bz-lab warn">On the Wall · ${g.known.people}</span>` : '',
       showCat && catText && !(g.known && catCls === 'hot') ? `<span class="bz-lab ${catCls}">${catText}</span>` : '',
       g.saved ? '<span class="bz-lab">In your contacts</span>' : '',
-      g.sendsUpdates && g.promo && !g.done ? '<span class="bz-lab">Also sends updates</span>' : '',
+      g.sendsUpdates && g.promo && !g.done ? '<span class="bz-lab" title="Numbers that also send you orders, bookings or OTPs only get the marketing opt-out. Numbers that only send updates are left alone.">Also sends updates</span>' : '',
       g.optedOut ? '<span class="bz-lab">Opted out</span>' : '',
       allBlocked && !g.done ? '<span class="bz-lab">Blocked</span>' : '',
     ].join('');

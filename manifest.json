@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Dear Customer",
   "short_name": "Dear Customer",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Find promotional senders in WhatsApp Web. Choose to opt out, report, block and archive their chats in one click.",
   "homepage_url": "https://dearcustomer.kanishkdan.com",
   "minimum_chrome_version": "111",
