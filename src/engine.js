@@ -457,10 +457,7 @@
     const promo = countRe(PROMO_RE, text);
     const txn = countRe(TXN_RE, text);
     // Ties go to alerts: a statement that mentions a credit card is still a statement.
-    // A plain chat message needs two promotional words; one "gift" in a birthday wish is
-    // not an ad. Templates and messages with buttons need one.
-    const templated = msgSignals(m).biz;
-    if (promo >= (templated ? 1 : 2) && promo > txn) return 'promo-guess';
+    if (promo >= 1 && promo > txn) return 'promo-guess';
     if (txn === 0 && hasCta(m)) return 'promo-guess';
     if (tag === 'utility' || txn >= 1) return 'utility';
     return null;
@@ -785,13 +782,14 @@
     return optOutMod;
   }
   // WhatsApp only shows "Stop offers and announcements" where it has switched the feature
-  // on for the account. Sending the request anywhere else is a request the official app
-  // never makes, so honour the same switch and skip when it is off or unknown.
+  // on for the account. Honour that switch when WhatsApp says no. When the switch can't
+  // be found, WhatsApp's own loader decides, as before.
   function optOutAllowed() {
     try {
       const gate = window.require && window.require('WAWebMarketingMessagesUserFeedbackGatingUtils');
-      return !!(gate && typeof gate.isMMOptOutEnabled === 'function' && gate.isMMOptOutEnabled());
-    } catch (_) { return false; }
+      if (gate && typeof gate.isMMOptOutEnabled === 'function') return gate.isMMOptOutEnabled() !== false;
+    } catch (_) {}
+    return true;
   }
   async function stopMarketing(id) {
     if (!optOutAllowed()) throw new Error('opt-out unavailable for this WhatsApp account');
@@ -923,20 +921,20 @@
     const REPORT_CAP = Math.max(0, Math.min(25, 50 - dayReports));
     let stopsSent = 0, reportsSent = 0, optoutDead = false, reportDead = false;
 
-    // Plan each number before touching anything. Only numbers active in the chosen period
-    // are acted on. A number that only sends updates is left alone. A number that sends
-    // both promotions and updates only gets actions that stop marketing, so orders,
-    // bookings and OTPs keep coming.
+    // Plan each number before touching anything. A number that only sends updates is left
+    // alone. A number that sends both promotions and updates only gets actions that stop
+    // marketing, so orders, bookings and OTPs keep coming. Every number the business used
+    // is blocked and archived; only numbers active in the chosen period are reported.
     for (const g of targets) {
       g.done = false; g.expanded = false; g.stopId = null;
       for (const n of g.numbers) {
         n.result = {}; n.errors = {};
-        n.plan = !n.inWindow ? null : n.cls === 'updates' ? 'keep' : n.cls === 'mixed' ? 'marketing' : 'full';
+        n.plan = n.cls === 'updates' ? 'keep' : n.cls === 'mixed' ? 'marketing' : 'full';
         if (n.plan === 'keep') { n.result.kept = 'updates'; continue; }
-        if (!n.plan) continue;
         for (const k of resultKeys) {
           if (!A[k] || k === 'stop') continue;
           if (n.plan === 'marketing' && k !== 'optout') continue;
+          if (k === 'report' && !n.inWindow) continue;
           n.result[k] = 'pending';
         }
       }
@@ -946,7 +944,8 @@
         if (recent) { g.stopId = recent.id; recent.result.stop = 'pending'; }
       }
       for (const n of g.numbers) {
-        if (n.plan === 'marketing' && !resultKeys.some((k) => n.result[k] !== undefined)) { n.plan = 'keep'; n.result.kept = 'mixed'; }
+        if (n.plan === 'keep' || resultKeys.some((k) => n.result[k] !== undefined)) continue;
+        n.result.kept = n.plan === 'marketing' ? 'mixed' : 'old'; n.plan = 'keep';
       }
     }
     const total = targets.reduce((c, g) => c + g.numbers.filter((n) => n.plan === 'full' || n.plan === 'marketing').length, 0);
@@ -1329,6 +1328,12 @@
   /* states */
   #bouncer-root .bz-empty { padding: 48px 20px; color: var(--muted); line-height: 1.5; }
   #bouncer-root .bz-empty .h { font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 700; font-size: 20px; color: var(--paper); margin-bottom: 6px; }
+  #bouncer-root .bz-start { text-align: center; padding: 52px 24px 40px; }
+  #bouncer-root .bz-start-ic { width: 72px; height: 72px; margin: 0 auto 18px; border-radius: 50%; background: var(--ink-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; }
+  #bouncer-root .bz-start-ic .bz-ic { width: 34px; height: 34px; }
+  #bouncer-root .bz-start p { margin: 0 auto 24px; max-width: 290px; font-size: 13.5px; }
+  #bouncer-root .bz-start .bz-btn { height: 54px; font-size: 15px; }
+  #bouncer-root .bz-start .bz-btn .bz-ic { width: 20px; height: 20px; flex: none; }
   #bouncer-root .bz-scanline { height: 2px; background: var(--line); margin-top: 18px; max-width: 220px; }
   #bouncer-root .bz-scanline > i { display: block; height: 100%; background: var(--paper); transition: width .2s; }
 
@@ -1620,7 +1625,11 @@
       const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
       return `<div class="bz-empty"><div class="h">Reading the list</div>${p.total ? `${p.done} of ${p.total} chats` : 'Nothing is sent or changed.'}<div class="bz-scanline"><i style="width:${pct}%"></i></div></div>`;
     }
-    if (!state.scanned) return `<div class="bz-empty"><div class="h">Ready</div><button class="bz-link" data-act="scan">Look for businesses</button></div>`;
+    if (!state.scanned) return `<div class="bz-empty bz-start">
+      <div class="bz-start-ic">${icon('scan')}</div>
+      <div class="h">Ready when you are</div>
+      <p>Finds the businesses messaging you. Reads your chat list on this device only. Nothing is sent or changed until you press Bounce.</p>
+      <button class="bz-btn bz-start-cta" data-act="scan">${icon('scan')}Look for businesses</button></div>`;
 
     const allBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && !isIgnored(g.key));
     const promoOnly = state.filter === 'promo';
@@ -1767,8 +1776,7 @@
 
   function renderResultTags(n) {
     if (!n.result) return '';
-    if (n.result.kept) return `<span class="bz-action-status"><span>No action</span><span class="bz-st">Left alone</span><small>${n.result.kept === 'mixed' ? 'This number also sends you updates, and no marketing-only action was available.' : 'This number sends you updates like orders, bookings or OTPs.'}</small></span>`;
-    if (n.plan === null && !Object.keys(n.result).length) return '<span class="bz-action-status"><span>No action</span><span class="bz-st">Skipped</span><small>No messages from this number in the chosen period.</small></span>';
+    if (n.result.kept) return `<span class="bz-action-status"><span>No action</span><span class="bz-st">Left alone</span><small>${n.result.kept === 'mixed' ? 'This number also sends you updates, and no marketing-only action was available.' : n.result.kept === 'old' ? 'No message from this number in the chosen period, so there was nothing to report.' : 'This number sends you updates like orders, bookings or OTPs.'}</small></span>`;
     const names = { optout: 'WhatsApp opt-out', stop: 'STOP reply', report: 'Report', block: 'Block', archive: 'Archive' };
     return resultKeys.map((k) => {
       const v = n.result[k]; if (v === undefined) return '';
@@ -1904,6 +1912,7 @@
     report: '<path d="M5 21V4"/><path d="M5 4h12l-2 3.5 2 3.5H5"/>',
     block: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
     archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/>',
+    scan: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.4-4.4"/><path d="M8.5 11h5M11 8.5v5"/>',
   };
   const icon = (k) => `<svg class="bz-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
   const CHOICES = [

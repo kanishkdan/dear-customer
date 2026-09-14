@@ -484,8 +484,8 @@ async function landingPage(env) {
     <h2>Before you bounce</h2>
     <div class="faq">
       <details open><summary>What about bookings, tickets and order updates?</summary>
-        <p>Dear Customer identifies promotional senders; it does not selectively hide individual messages. A business that sends both offers and booking confirmations can appear in the promotional list. Blocking a number stops both kinds of message from that number. If you need its updates, leave the business unticked or choose Ignore.</p>
-        <p>Opt-out and STOP behavior depends on WhatsApp and the business. Some unsubscribe buttons stop all communication. Keeping a business unselected is the safest way to preserve its useful messages.</p>
+        <p>Dear Customer sorts each number by everything it has sent you. A number that only sends orders, bookings or OTPs is left alone. A number that sends both offers and updates only gets WhatsApp's own marketing opt-out and, where the business offers one, a "stop promotions" button. It is never blocked or reported, and no typed STOP is sent to it, so your updates keep coming. Numbers that only send promotions get the full treatment.</p>
+        <p>Version 1.0.2 and earlier blocked every number of a ticked business. If you are on one of those, leave a business you still buy from unticked or choose Ignore; your copy updates on its own within a few hours of the new version going live.</p>
       </details>
       <details><summary>Does this cost spammers money?</summary>
         <p>Dear Customer makes no promise about a business's marketing budget. It brings together opt-out requests, reporting, blocking and optional public reports of repeat spam. WhatsApp decides how to enforce reports; the Wall makes the pattern visible.</p>

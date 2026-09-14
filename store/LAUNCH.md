@@ -8,14 +8,15 @@ Replacement video: https://www.youtube.com/watch?v=OnTBwxdliI0. YouTube reports 
 
 ## 1.0.3 safety release (14 September 2026)
 
-Built as `dist/dear-customer-1.0.3.zip`; not yet uploaded to the store.
+Built as `dist/dear-customer-1.0.3.zip`; not yet uploaded to the store. Store screenshots in `store/screenshots/` were regenerated from the 1.0.3 UI (screenshot 1 no longer shows a Delete tile).
 
 - Delete is gone. Choices saved by older versions with delete switched on are stripped when history loads.
-- Saved contacts on the WhatsApp Business app are never pre-ticked, and a plain chat message needs two promotional words before it counts as an ad.
+- Saved contacts on the WhatsApp Business app are never pre-ticked, and their plain messages never count as promotions.
 - Each number is classified by everything it sends. Numbers that only send updates are left alone. Numbers that send both only get WhatsApp's marketing opt-out and a promotions-only unsubscribe button: no block, report, archive, "disable all" or typed STOP.
-- WhatsApp's opt-out only runs where WhatsApp has enabled it for the account. Only numbers active in the chosen period are touched. Reports are capped at 25 per run and 50 per day.
+- WhatsApp's opt-out is skipped when WhatsApp's own switch says it's off for the account; when the switch can't be found it runs as before. Every number a ticked business used is blocked and archived; only numbers active in the chosen period are reported, capped at 25 per run and 50 per day.
 - Nothing is saved before stored history loads, so an early save can't wipe the ignore list or past runs.
 - `window.__bouncer` is read-only, can't start a run, and is off unless `localStorage.dearcustomer.debug` is `1`.
+- The first screen after setup is a proper call to action: icon, one line on what happens, and a full-width Look for businesses button.
 - The Wall only accepts official business accounts. A business needs three installs on three different networks, counted by a keyed hash of the IPv4 /24 or IPv6 /48; the address itself is never stored. `scripts/suppress.sh` hides a business at once.
 
 Wall changes are live: D1 migration applied (`reports.net_hash`, `suppressed`), `IP_SALT` secret set, Worker version f792360d-865f-47e7-8301-6c23d2dee041. Three fake installs from one network did not list a probe business, a non-official account was rejected, and the takedown round trip worked. Probe rows were deleted.
@@ -27,7 +28,9 @@ Verified: 19 logic tests, the offline UI suite (zero page errors, zero network r
 - Kiwi's promo number got the full set of actions.
 - No delete call was made, and nothing was sent to the Wall.
 
-To do: upload the 1.0.3 zip, replace the store description line about deleting with "Archive chats. Unarchive any time.", and run one real-account pass on a sender that sends both orders and offers.
+The landing page FAQ describes the new behaviour and tells 1.0.2 users to untick businesses they still buy from until their copy updates.
+
+To do: upload the 1.0.3 zip, replace the store description line about deleting with "Archive chats. Unarchive any time.", and run one real-account pass on a sender that sends both orders and offers. In the WhatsApp Web console, `require('WAWebMarketingMessagesUserFeedbackGatingUtils').isMMOptOutEnabled()` shows whether WhatsApp's own opt-out is switched on for the account.
 
 ## Release files
 

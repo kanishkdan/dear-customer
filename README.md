@@ -91,10 +91,9 @@ What would raise the risk: modifying the code to send more, faster, or to number
 Built in to keep your account, the people you know, and the businesses on the Wall safe:
 
 - **People in your contacts are never pre-ticked.** A saved contact who uses the WhatsApp Business app is treated as a person. Their plain messages never count as promotions, and bouncing one asks for a second click.
-- **Plain messages need real evidence.** One promotional word, like "gift" in a birthday wish, isn't enough. A plain chat message needs two; templates and messages with buttons need one.
 - **Updates keep coming.** Each number is classified by everything it sends you. A number that only sends orders, bookings or OTPs is left alone. A number that sends both only gets WhatsApp's marketing opt-out and a promotions-only unsubscribe button, never a block, report, archive, "disable all" button or typed STOP.
-- **Only active numbers are touched**, and reports are capped at 25 per run and 50 per day, STOP replies at 20 per run and 40 per day.
-- **WhatsApp's opt-out runs only where WhatsApp offers it** to your account, so the extension never sends a request the official app wouldn't.
+- **Every number a ticked business used is blocked and archived.** Only numbers active in the chosen period are reported, capped at 25 per run and 50 per day. STOP replies are capped at 20 per run and 40 per day.
+- **WhatsApp's opt-out is skipped when WhatsApp says it's off** for your account, so the extension never sends a request the official app wouldn't.
 - **No delete.** Archive clears the chat list and can be undone.
 - **The Wall needs three separate users on different networks**, accepts only official business accounts, and any business can be hidden in seconds.
 - **Nothing on the page can start a run** except the Bounce button. The debug handle is off by default and read-only.
