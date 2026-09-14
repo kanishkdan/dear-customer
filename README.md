@@ -20,11 +20,15 @@
 
 ---
 
-Every one of these messages opens the same way. Blocking the sender does nothing. They have a bag of numbers and next week they're back from a new one. Dear Customer is a Chrome extension for WhatsApp Web that finds every business sending you promotions, shows how many numbers each one has burned on you, and throws them out in one click: WhatsApp's own marketing opt-out, STOP, report, block, delete. **Nothing leaves your browser unless you choose to add a business to the public Wall of Shame.**
+Every one of these messages opens the same way. Blocking the sender does nothing. They have a bag of numbers and next week they're back from a new one. Dear Customer is a Chrome extension for WhatsApp Web that finds every business sending you promotions, shows how many numbers each one has burned on you, and throws them out in one click: WhatsApp's own marketing opt-out, STOP, report, block and archive. Delete is optional. **Chat processing stays in your browser. Wall contributions and sharing are your choice.**
 
 ## Install
 
-Chrome Web Store listing is pending review. Until then:
+**[Add to Chrome](https://chromewebstore.google.com/detail/dear-customer/lleodoeagdgcfbjcippnlijaikehgfpe)**
+
+Open <https://web.whatsapp.com> after installing. Once your chats load, click the **Dear Customer** pill at bottom-left or the toolbar icon.
+
+For development or manual installation:
 
 1. Download the latest release zip from the Releases page, or clone this repo.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, pick the folder.
@@ -38,7 +42,10 @@ Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content
 - Dear Customer reads your chats and opens on **Promotional**: every business that sent you marketing in the period you pick (this week by default). Each row shows the message count, the last message, and in red how many different numbers that business has ever used on you. Rows are ranked by that count.
 - Promotional rows are ticked. Click a name to open the chat and check. Switch to **All** to see senders that only sent order updates, alerts or codes, small businesses on the WhatsApp Business app, and unknown numbers not in your contacts.
 - The first time you open it, Dear Customer asks what you want to do with these messages and shows the five choices as tiles with what each one does and whether it can be undone. Opt out is one choice that runs both opt-out mechanisms. The default is opt out, report, block and archive; delete is off. **Change** under the Bounce button brings that screen back.
-- Press **Bounce**. Progress shows per number, and a Stop button ends the run early. When it finishes you get a stamp, a count, a share card, and the option to add the businesses you bounced to the public Wall of Shame. Only the ones that were promotional to you are preselected, and you can tick "add automatically after every run".
+- Untick a sender to skip this run. **Ignore** skips that business in future scans too. The notice has **Undo**, and **Ignored (N)** above the list lets you restore individual senders or **Restore all**. Restored senders stay unticked until you select them. Ignored senders cannot be included by Select all or Bounce.
+- Press **Bounce**. Each business shows Queued, its current action, Completed, Partly completed, Failed, or Not completed. **Details** shows every requested action, including skipped actions, timeouts and failure reasons. Progress leaves your scroll position alone. **Stop** finishes the action already in flight, then leaves remaining actions unrun.
+- Results open at the top. Counts and history include only numbers with at least one successful or already-completed action; partial and stopped runs are labelled. **Post to X** opens an editable draft with aggregate results and the site link. **Save share card** downloads a PNG you can attach yourself; the card can include business names. Neither button publishes a post.
+- You can also add successful promotional business senders to the public Wall of Shame. Use **Choose which** to review them, or opt into adding them automatically after future runs.
 
 ## How it finds promotional senders
 
@@ -49,6 +56,12 @@ Chrome 111 or newer. Works on Chromium browsers that support Manifest V3 content
 
 Business detection itself uses the contact flags WhatsApp exposes, business markers on the messages, and whether the sender is in your address book.
 
+### What about bookings and order updates?
+
+Dear Customer flags promotional **senders**, not individual messages to hide. A business that sends both offers and booking confirmations can appear in Promotional. Blocking a number stops both kinds of message from that number. If you need updates from Myntra, BookMyShow, MakeMyTrip or another business, leave it unticked or choose **Ignore**. You can restore ignored senders later.
+
+Opt-out and STOP behavior depends on the business and WhatsApp; some unsubscribe buttons stop all communication. Leaving the business unselected is the safest way to preserve its useful messages.
+
 The word lists live in `src/keywords.js`: promotional phrases, transactional phrases, and the opt-out button labels Dear Customer will tap, strongest first. They're plain lists, tuned for India today. If spam where you live says something else, edit the file and open a pull request.
 
 ## What each action does
@@ -56,15 +69,15 @@ The word lists live in `src/keywords.js`: promotional phrases, transactional phr
 | Action | Who enforces it | Effect |
 | --- | --- | --- |
 | Opt out, part one | WhatsApp, on the business account | The same request WhatsApp's "Stop offers and announcements" button sends. Meta then refuses that business's marketing templates to you, whichever number they use. Runs first. Availability depends on WhatsApp having rolled the control out to your account. |
-| Opt out, part two | The business's messaging vendor | Looks for an opt-out button on their latest template, such as "Disable all communication", "Unsubscribe" or "STOP", taps the strongest, waits for a bot follow-up and taps that too. Types the word STOP only when there is no button, because most vendors act on the button id, not typed text. Latest live number only, at most 30 per run. |
-| Report | WhatsApp | Sends the latest message from that number to WhatsApp. Reports lower the number's quality rating until Meta throttles or bans it, which is why spammers rotate numbers. |
-| Block | WhatsApp | That number can never message you again. Undo from the results screen. |
+| Opt out, part two | The business's messaging vendor | Looks for an opt-out button on their latest template, such as "Disable all communication", "Unsubscribe" or "STOP", taps the strongest, waits for a bot follow-up and taps that too. Types the word STOP only when there is no button, because most vendors act on the button id, not typed text. Latest live number only, at most 20 per run and 40 per day. |
+| Report | WhatsApp | Reports the selected sender with message context. WhatsApp decides whether to take enforcement action. |
+| Block | WhatsApp | Stops messages from that number, including booking and order updates. Undo from the results screen. |
 | Archive chat | Your WhatsApp | Moves the chat out of your list. It comes back if they message you again. On by default instead of delete. |
 | Delete chat | Your WhatsApp | Removes the chat on all your devices. |
 
 ## Privacy
 
-Everything runs in your browser. Nothing about your chats leaves it unless you press **Add to the Wall of Shame**, and then only the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. Full policy: <https://dearcustomer.kanishkdan.com/privacy>.
+Chat processing runs in your browser. If you choose **Add to the Wall**, or enable automatic contribution, the extension sends the business name, a SHA-256 hash of each number it used, whether it is an official Business Platform account, a country-code guess, and a random per-install id so one person counts once. **Post to X** sends aggregate results and the site link to an editable X draft; it omits business names, phone numbers and message content. Image cards are saved locally and can include business names and counts. Full policy: <https://dearcustomer.kanishkdan.com/privacy>.
 
 ## Is this safe for my number?
 
@@ -105,6 +118,14 @@ A business is only named on the public Wall once **three different people** have
 ## Debug
 
 Open DevTools on the WhatsApp Web tab. `window.__bouncer.state` is the live state. Every action during a run logs a `[Dear Customer]` line with its outcome and timing. If something you know is spam isn't listed, press **Copy diagnostics** on the empty state and open an issue with it; it contains business names and masked numbers only.
+
+## Development checks
+
+Run `node --test tests/engine.test.cjs` for the selection, action, cancellation, history and sharing regressions. No dependencies are required.
+
+`tests/ui-smoke.cjs` exercises the UI in Chromium with fictional data and all network requests blocked. It requires `playwright-core` and an installed Chromium executable supplied through `CHROMIUM_PATH`. It writes screenshots to `dist/qa/`. See `tests/README.md` for details.
+
+Build the Chrome Web Store package with `bash scripts/package.sh`. Release materials and the remaining live-session checks are in [store/LAUNCH.md](store/LAUNCH.md).
 
 ## Licence
 

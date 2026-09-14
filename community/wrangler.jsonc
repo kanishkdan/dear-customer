@@ -5,9 +5,12 @@
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "assets": { "directory": "./public" },
   "vars": {
     "REPO_URL": "https://github.com/kanishkdan/dear-customer",
     "SITE_URL": "https://dearcustomer.kanishkdan.com",
+    "STORE_URL": "https://chromewebstore.google.com/detail/dear-customer/lleodoeagdgcfbjcippnlijaikehgfpe",
+    "YOUTUBE_VIDEO_ID": "OnTBwxdliI0",
     "MIN_REPORTERS": "3"
   },
   "workers_dev": true,

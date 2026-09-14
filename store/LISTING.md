@@ -1,93 +1,59 @@
 # Chrome Web Store listing
 
-Everything the Developer Dashboard asks for, in order. Upload `dist/dear-customer-1.0.0.zip` from `scripts/package.sh`.
+Everything the Developer Dashboard asks for, in order. Upload `dist/dear-customer-1.0.2.zip` from `scripts/package.sh`.
 
 ## Store listing
 
 **Name:** Dear Customer
 
-**Summary (132 max):** Finds every promotional sender in your WhatsApp Web chats and opts out, STOPs, reports, blocks and deletes them in one click.
+**Summary (132 max):** Find promotional senders in WhatsApp Web. Choose to opt out, report, block and archive their chats in one click.
 
-**Category:** Productivity → Communication
+**Category:** Communication
 
 **Language:** English
 
 **Description:**
 
-The revenge button for WhatsApp spam.
+Take control of promotional messages on WhatsApp Web.
 
-Dear Customer runs inside WhatsApp Web. Open it and it lists every business that has been sending you promotions, ranked by how many different numbers each one has burned on you. Tick the ones you're done with and press Bounce. For each number it:
+Dear Customer finds businesses sending you promotions and shows how many different numbers each one has used to contact you.
 
-• Stops marketing — WhatsApp's own "Stop offers and announcements" opt-out, which Meta enforces on the whole business account, not just one number
-• Sends STOP — taps the opt-out button on their latest message ("Disable all communication", "Unsubscribe", "STOP") the way the vendor's bot expects, and only types STOP when there's no button
-• Reports the number to WhatsApp
-• Blocks it
-• Archives the chat, or deletes it if you choose
+Review the senders, choose your actions and press Bounce:
 
-The first time you open it, Dear Customer asks what you want it to do and explains each option and whether it can be undone.
+• Request marketing opt-outs and send STOP replies.
+• Report and block selected numbers.
+• Archive chats, or optionally delete them.
 
-Businesses that only send order updates, OTPs and alerts are kept out of the way under All, so your bank and your grocer stay untouched. Click any name to open the chat and check before you act.
+Ignore senders you want to keep and restore them at any time. Follow each action as it runs, stop after the current action, and see what completed or needs attention.
 
-Optionally add the businesses that spammed you to the public Wall of Shame at dearcustomer.kanishkdan.com, ranked by how many people bounced them for promotions and how many numbers they burned. Names and hashed numbers only, never your data, and the list never decides for you: what gets ticked depends on what a business sends you.
+Chat analysis runs locally in your browser. Selected actions use your existing WhatsApp Web session; reporting can send message context to WhatsApp. Sharing results is optional: contribute business names and hashed sender numbers to the public Wall of Shame, save an image card, or open an editable X draft. Wall contributions include a random installation identifier to count each installation once. No message content is uploaded to Dear Customer.
 
-Everything runs in your browser. Nothing about your chats leaves it unless you choose to add a business to the list.
+Free and open source. Requires a WhatsApp account linked to WhatsApp Web. Not affiliated with WhatsApp or Meta.
 
-Requires a WhatsApp account linked to WhatsApp Web. Not affiliated with WhatsApp or Meta.
+Dear Customer. No.
 
-**Screenshots (1280×800, up to 5):** take these on your own WhatsApp Web. Keep the chat list visible on the left so the context is clear.
-1. The list open on Promotional with a few rows ticked.
-2. Mid-run, progress in the footer.
-3. The results screen with the stamp.
-4. The Wall of Shame page at dearcustomer.kanishkdan.com/wall.
+**Screenshots (1280×800):** prepared in `store/screenshots/` using the actual extension UI with labelled fictional demo data.
+1. `01-setup.png` — action choices and defaults.
+2. `02-list.png` — promotional senders and per-business controls.
+3. `04-running.png` — stable progress and action details.
+4. `05-results.png` — completed results and sharing.
+5. `06-partial.png` — honest partial results.
 
-**Small promo tile (440×280):** `store/promo-small-440x280.png`
+**Small promo tile (440×280):** `store/promo-small-v2-440x280.png`
 **Marquee (1400×560, optional):** `store/promo-marquee-1400x560.png`
 **Icon (128):** `icons/icon128.png`
 
 ## Privacy practices tab
 
-**Single purpose:** Lets a WhatsApp Web user find the businesses sending them promotional messages and opt out of, STOP, report, block and delete them.
-
-**Permission justifications:**
-- `storage` — remembers which business senders it has seen and the numbers they used, so it can count numbers burned across weeks; stores a random id and a cached copy of the public list.
-- `activeTab` — opens the panel in the current WhatsApp Web tab when the toolbar icon is clicked.
-- `scripting` — injects the bundled wa-js library (vendor/wppconnect-wa.js, shipped inside the extension, not remote) into WhatsApp Web after the user has logged in. It cannot be a static content script because injecting it before login breaks it.
-- Host `https://web.whatsapp.com/*` — the only site the extension works on.
-- Host `https://dearcustomer.kanishkdan.com/*` — downloads the public list of reported businesses every six hours and, only when the user presses "Add to the Wall of Shame", uploads the business names and hashed numbers they ticked.
-
-**Remote code:** No. All code ships in the package.
-
-**Data usage:** Website content (business names and hashed phone numbers from WhatsApp chats), only when the user explicitly submits them. Not personally identifiable information about the user. Not sold, not used for purposes unrelated to the extension's single purpose, not used for creditworthiness or lending.
-
-**Privacy policy URL:** https://dearcustomer.kanishkdan.com/privacy
+Copy the exact fields and checkbox guidance from [PRIVACY-FIELDS.md](PRIVACY-FIELDS.md). This covers version 1.0.2, which removes redundant activeTab access, and discloses local message/sender processing as well as optional sharing.
 
 ## Review notes (for the reviewer box)
 
-This extension helps a WhatsApp user unsubscribe from businesses that message them. It does not send bulk messages and is not related to the WhatsApp marketing/spamware extension cluster removed in 2025. Its only outbound action is a single STOP reply per business, inside a conversation that business started, capped at 20 per run and 40 per day, and the user can disable it. Every other action (opt out, report, block, archive, delete) mirrors a control in WhatsApp's own interface and applies to the user's own chats.
+This extension helps a WhatsApp user unsubscribe from businesses that message them. It only sends a STOP reply or chooses an unsubscribe button when the user enables that action and presses Bounce. STOP replies are limited to one selected number per business, capped at 20 per run and 40 per day. Selected opt-out, report, block, archive and delete actions use the user's existing WhatsApp session.
 
 Testing requires a WhatsApp account linked to web.whatsapp.com. After linking, wait for the chat list to appear, then click the Dear Customer pill at bottom-left or the toolbar icon. The panel lists business senders; nothing is sent or changed until the user presses Bounce. The extension automates actions the user could do by hand in WhatsApp Web (block, delete, report, reply, opt out). The bundled library wa-js is open source (Apache 2.0, github.com/wppconnect-team/wa-js) and is included unmodified.
 
-## The elephant: Google purged 131 WhatsApp Web extensions
-
-In October 2025 Google removed a cluster of 131 Chrome extensions that injected into WhatsApp Web to automate bulk outreach and dodge WhatsApp's anti-spam rules. Reviewers now pattern-match on "extension that injects into WhatsApp Web and automates things," which is literally what this is. Assume the first review is hostile and make the difference impossible to miss.
-
-The difference, stated plainly in the review notes:
-
-- Those extensions **send** messages to many recipients. Dear Customer sends at most one reply per business, only into a conversation that business started, capped at 20 per run and 40 per day, and the user can turn even that off.
-- Those extensions exist to help businesses reach people. Dear Customer exists to help a person get businesses to stop reaching them. It is the opposite direction.
-- Every other action it takes (opt out, report, block, archive, delete) is something WhatsApp's own UI offers, applied to the user's own chats.
-- No remote code, no server-side message queue, no contact list upload, no scheduling, no bulk send of any kind.
-
-If the first submission is rejected, do not argue the category. Resubmit with the Opt out action removed entirely, which makes the extension send zero messages and removes the only surface that resembles the banned cluster.
-
-## Things that can get it rejected, and the answer
-
-- **Trademark.** The name is "Dear Customer", not "Dear Customer for WhatsApp". "WhatsApp Web" appears only to describe compatibility, with a non-affiliation line.
-- **Host permissions scope.** Two hosts, both justified above. Do not add more.
-- **User data transmission.** Opt-in per run, disclosed in the UI at the moment of sending, covered by the policy.
-- **Automation of a third-party site.** Disclosed plainly in the description.
-
 ## After approval
 
-- Put the store URL in README.md under Install and on the site's "Get Dear Customer" button (`REPO_URL` in `community/wrangler.jsonc` can point at the store instead of GitHub).
+- Put the store URL in README.md under Install. Set `STORE_URL` in `community/wrangler.jsonc`; the landing page then changes its install button to Add to Chrome. Keep `REPO_URL` pointing at GitHub.
 - Tag a GitHub release with the same zip.

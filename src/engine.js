@@ -13,7 +13,8 @@
   if (window.__bouncerLoaded) return;
   window.__bouncerLoaded = true;
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.2';
+  const SITE_URL = 'https://dearcustomer.kanishkdan.com';
   const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><path d="M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z" fill="#fff"/><rect x="262" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="566" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="452" y="418" width="120" height="34" rx="17" fill="#1c1c1e"/></svg>';
   const STOP_TEXT = 'STOP';
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -47,6 +48,10 @@
     view: 'list',              // 'list' | 'chart' | 'setup'
     expanded: false,           // wide mode: list on the left, dashboard on the right
     activeId: null,            // number currently being bounced
+    runActions: null,
+    runKeys: [],
+    undoIgnore: null,
+    noticeAction: null,
     armed: false,              // second-click confirm when the selection includes non-promotional rows
     inject: 'idle',           // 'idle' | 'requested' | 'done' | 'failed'
     injectError: null,
@@ -136,25 +141,44 @@
   // so a new number from an ignored business stays ignored.
   const ignoredMap = () => state.history.ignored || (state.history.ignored = {});
   const isIgnored = (key) => !!ignoredMap()[key];
+  const selectableGroups = () => state.groups.filter((g) => !g.done && !isIgnored(g.key) && g.active.length &&
+    (g.kind === 'biz' ? state.filter === 'all' || g.promo : state.filter === 'all' && state.showUnknown));
+  const selectedGroups = () => selectableGroups().filter((g) => g.checked);
+  function refreshBadge() {
+    const n = state.groups.filter((g) => g.kind === 'biz' && g.promo && g.active.length && !g.done && !isIgnored(g.key)).length;
+    setBadge(n ? String(n) : '');
+  }
   function ignoreKeys(keys) {
     const m = ignoredMap();
     const names = [];
     for (const key of keys) {
       const g = state.groups.find((x) => x.key === key);
       if (!g || m[key]) continue;
+      state.undoIgnore = { key, checked: g.checked };
       m[key] = { name: g.name, ts: nowSec() };
       g.checked = false;
       names.push(g.name);
     }
     if (names.length) {
       saveHistory();
-      notice(names.length === 1
-        ? `Ignoring ${names[0]}. It won't show up again.`
-        : `Ignoring ${names.length} businesses. They won't show up again.`);
+      refreshBadge();
+      notice(`Ignoring ${names[0]} in future scans.`, 'undo-ignore');
     }
     render();
   }
-  function unignore(key) { delete ignoredMap()[key]; saveHistory(); render(); }
+  function unignore(key) {
+    delete ignoredMap()[key];
+    const g = state.groups.find((x) => x.key === key);
+    if (g) g.checked = false;
+    saveHistory(); refreshBadge(); render();
+  }
+  function restoreIgnored() {
+    const n = Object.keys(ignoredMap()).length;
+    for (const g of state.groups) if (isIgnored(g.key)) g.checked = false;
+    state.history.ignored = {}; state.undoIgnore = null;
+    saveHistory(); refreshBadge();
+    notice(`Restored ${n} ${n === 1 ? 'business' : 'businesses'}. Select any you want to bounce.`);
+  }
   function setBadge(text) { toExt('badge', text); }
 
   // ----------------------------------------------------------- wa-js status
@@ -430,6 +454,8 @@
 
   async function step(n, key, label, fn, ms = ACTION_TIMEOUT_MS) {
     const started = Date.now();
+    n.result[key] = 'running';
+    updateRunUI();
     try {
       const r = await withTimeout(Promise.resolve().then(fn), ms, label);
       if (n.result[key] !== 'already') n.result[key] = true;
@@ -441,6 +467,8 @@
       n.errors = n.errors || {}; n.errors[key] = msg;
       log(label, 'FAILED', `${Date.now() - started}ms`, n.id, msg);
       return false;
+    } finally {
+      updateRunUI();
     }
   }
 
@@ -787,131 +815,155 @@
   }
 
   // --------------------------------------------------------------------- run
-  async function run() {
-    if (state.running || state.scanning) { log('run refused', { running: state.running, scanning: state.scanning }); return; }
-    const targets = state.groups.filter((g) => g.checked);
-    if (!targets.length) { log('run refused: nothing selected'); return; }
-    const A = state.actions;
-    if (!A.optout && !A.stop && !A.report && !A.block && !A.archive && !A.del) { log('run refused: no actions'); return; }
+  const actionSucceeded = (v) => v === true || v === 'already';
+  const numberSucceeded = (n) => !!n.result && resultKeys.some((k) => actionSucceeded(n.result[k]));
+  const resultKeys = ['optout', 'stop', 'report', 'block', 'archive', 'del'];
+  function outcome(g) {
+    const values = g.numbers.flatMap((n) => resultKeys.map((k) => (n.result || {})[k]).filter((v) => v !== undefined));
+    const good = values.filter(actionSucceeded).length;
+    const failed = values.some((v) => v === false || v === 'timeout');
+    const incomplete = values.some((v) => ['skipped', 'cancelled', 'undone'].includes(v));
+    if (!g.done) return { key: g.numbers.some((n) => n.id === state.activeId) ? 'running' : 'queued', label: g.numbers.some((n) => n.id === state.activeId) ? `${state.progress?.step || 'Working'}…` : 'Queued' };
+    if (good) return { key: failed || incomplete ? 'partial' : 'complete', label: failed || incomplete ? 'Partly completed' : 'Completed' };
+    if (failed) return { key: 'failed', label: 'Failed' };
+    if (values.includes('undone')) return { key: 'stopped', label: 'Undone' };
+    return { key: 'stopped', label: values.includes('cancelled') ? 'Not completed' : 'Unavailable' };
+  }
 
+  async function run() {
+    if (state.running || state.scanning) return;
+    const targets = selectedGroups().slice().sort(rankSort);
+    if (!targets.length) return;
+    const A = { ...state.actions };
+    if (!resultKeys.some((k) => A[k])) return;
     const W = window.WPP;
-    log('run start', { businesses: targets.length, actions: { ...A } });
+    state.runActions = A;
+    state.runKeys = targets.map((g) => g.key);
     state.running = true;
+    state.results = null;
+    state.cancel = false;
+    state.notice = null;
     const total = targets.reduce((s, g) => s + g.numbers.length, 0);
     state.progress = { done: 0, total, biz: '', phone: '', step: '' };
-    const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, archive: 0, del: 0, failed: 0, top: [] };
-    let optoutDead = false;
-    // Outbound messages are the only thing here that WhatsApp's anti-spam scores.
-    // Keep them few and slow: 20 per run, 40 per day, several seconds apart.
+    const sum = { businesses: targets.length, numbers: total, optout: 0, stop: 0, report: 0, block: 0, archive: 0, del: 0, failed: 0, cancelled: 0, top: [], actions: A };
     const today = new Date().toISOString().slice(0, 10);
     const dayStops = state.history.stopDay === today ? (state.history.stopCount || 0) : 0;
     const STOP_CAP = Math.max(0, Math.min(20, 40 - dayStops));
-    let stopsSent = 0;
-    let reportDead = false;   // after the first report timeout, stop trying for this run
-    state.cancel = false;
-    sum.cancelled = 0;
-    render();
-
+    let stopsSent = 0, optoutDead = false, reportDead = false;
     for (const g of targets) {
-      // STOP only goes to a number that messaged in the last 30 days, and at most
-      // STOP_CAP per run. A burst of texts to hundreds of dead numbers is the one
-      // thing here that looks like spam from WhatsApp's side.
-      const recent = nowSec() - 30 * 86400;
-      const stopTarget = A.stop && stopsSent < STOP_CAP
-        ? (g.numbers.find((n) => !n.blocked && n.ts >= recent) || null)
-        : null;
+      g.done = false; g.expanded = false;
       for (const n of g.numbers) {
-        if (state.cancel) { n.result = { cancelled: true }; sum.cancelled++; continue; }
-      if (A.stop && n === stopTarget && !STOP_CAP) n.stopSkipped = true;
-        n.result = {};
-        state.activeId = n.id;
-        render();
-
-        const label = (what) => { state.progress.biz = g.name; state.progress.phone = fmtPhone(n.phone); state.progress.step = what; render(); };
-
-        // Native opt-out first: it is the one that sticks, and it must run before block.
-        if (A.optout && optoutDead) { n.result.optout = 'skipped'; }
-        else if (A.optout) {
-          label('opting out on WhatsApp');
-          const r = await step(n, 'optout', 'opt-out', async () => { const v = await stopMarketing(n.id); if (v === 'already') n.result.optout = 'already'; return v; });
-          if (r) { if (n.result.optout !== 'already') sum.optout++; }
-          else { sum.failed++; if (/unavailable/.test((n.errors || {}).optout || '')) optoutDead = true; }
+        n.result = {}; n.errors = {};
+        for (const k of resultKeys) if (A[k] && k !== 'stop' && !(k === 'archive' && A.del)) n.result[k] = 'pending';
+      }
+      if (A.stop) {
+        const recent = g.numbers.find((n) => !n.blocked && n.ts >= nowSec() - 30 * 86400);
+        g.stopId = (recent || g.numbers[0]).id;
+        const n = recent || g.numbers[0];
+        n.result.stop = recent ? 'pending' : 'skipped';
+        if (!recent) n.errors.stop = 'No unblocked number has messaged in the last 30 days.';
+      }
+    }
+    render(true);
+    log('run start', { businesses: targets.length, actions: A });
+    for (const g of targets) {
+      for (const n of g.numbers) {
+        if (!state.cancel) state.activeId = n.id;
+        const label = (what) => { state.progress.biz = g.name; state.progress.phone = fmtPhone(n.phone); state.progress.step = what; updateRunUI(); };
+        const skip = (key, reason) => { n.result[key] = 'skipped'; n.errors[key] = reason; updateRunUI(); };
+        const act = async (key, what, fn, ms) => {
+          if (state.cancel) return;
+          label(what);
+          const ok = await step(n, key, what, fn, ms);
+          if (ok) { if (n.result[key] !== 'already') sum[key]++; }
+          else sum.failed++;
           await sleep(150);
-        }
-        if (A.stop && n === stopTarget) {
-          label('sending STOP');
-          if (await step(n, 'stop', 'STOP', () => sendStop(n.id), 20000)) { sum.stop++; stopsSent++; } else sum.failed++;
-          state.history.stopDay = today; state.history.stopCount = dayStops + stopsSent;
-          await sleep(2500 + Math.random() * 3000);
-        }
-        if (A.report && reportDead) { n.result.report = 'skipped'; }
-        else if (A.report) {
-          label('reporting');
-          if (await step(n, 'report', 'report', () => reportNumber(n.id))) sum.report++;
-          else { sum.failed++; if (n.result.report === 'timeout') reportDead = true; }
-          await sleep(150);
-        }
-        if (A.block) {
-          if (n.blocked) { n.result.block = 'already'; }
+          return ok;
+        };
+        if (!state.cancel && A.optout) {
+          if (optoutDead) skip('optout', 'WhatsApp opt-out is unavailable on this version.');
           else {
-            label('blocking');
-            if (await step(n, 'block', 'block', async () => { await W.blocklist.blockContact(n.id); n.blocked = true; })) sum.block++; else sum.failed++;
-            await sleep(150);
+            const ok = await act('optout', 'Opting out', async () => { const v = await stopMarketing(n.id); if (v === 'already') n.result.optout = 'already'; return v; });
+            if (!ok && /unavailable/.test(n.errors.optout || '')) optoutDead = true;
           }
         }
-        if (A.archive && !A.del) {
-          label('archiving');
-          if (await step(n, 'archive', 'archive', async () => { try { await W.chat.archive(n.id); } catch (e) { if (/already/i.test(String((e && e.message) || e))) { n.result.archive = 'already'; return 'already'; } throw e; } })) { if (n.result.archive !== 'already') sum.archive++; } else sum.failed++;
-          await sleep(150);
+        if (!state.cancel && A.stop && n.id === g.stopId && n.result.stop === 'pending') {
+          if (stopsSent >= STOP_CAP) skip('stop', 'The STOP limit was reached. Other actions can still run.');
+          else {
+            const ok = await act('stop', 'Sending STOP', () => sendStop(n.id), 20000);
+            if (ok) stopsSent++;
+            state.history.stopDay = today; state.history.stopCount = dayStops + stopsSent;
+            saveHistory();
+            if (!state.cancel) {
+              label('Waiting before the next action');
+              // Check Stop during the pacing delay as well as between actions.
+              const until = Date.now() + 2500 + Math.random() * 3000;
+              while (!state.cancel && Date.now() < until) await sleep(200);
+            }
+          }
         }
-        if (A.del) {
-          if (await step(n, 'del', 'delete', () => W.chat.delete(n.id))) sum.del++; else sum.failed++;
-          await sleep(150);
+        if (!state.cancel && A.report) {
+          if (reportDead) skip('report', 'Skipped after an earlier report timed out.');
+          else { await act('report', 'Reporting', () => reportNumber(n.id)); if (n.result.report === 'timeout') reportDead = true; }
+        }
+        if (!state.cancel && A.block) {
+          if (n.blocked) n.result.block = 'already';
+          else await act('block', 'Blocking', async () => { await W.blocklist.blockContact(n.id); n.blocked = true; });
+        }
+        if (!state.cancel && A.archive && !A.del) {
+          await act('archive', 'Archiving', async () => {
+            try { await W.chat.archive(n.id); }
+            catch (e) { if (/already/i.test(String(e?.message || e))) { n.result.archive = 'already'; return; } throw e; }
+          });
+        }
+        if (!state.cancel && A.del) await act('del', 'Deleting', () => W.chat.delete(n.id));
+        const unstarted = !resultKeys.some((k) => actionSucceeded(n.result[k]) || n.result[k] === false || n.result[k] === 'timeout');
+        if (state.cancel) {
+          for (const k of resultKeys) if (n.result[k] === 'pending') n.result[k] = 'cancelled';
+          if (unstarted) { n.result.cancelled = true; sum.cancelled++; }
         }
         state.progress.done++;
-        render();
+        updateRunUI();
       }
       g.done = true;
+      state.activeId = null;
+      updateRunUI();
     }
-
-    sum.ts = nowSec();
-    sum.days = state.days;
-    sum.businessesDone = targets.filter((g) => g.numbers.some((n) => n.result && !n.result.cancelled)).length;
-    sum.reportDead = reportDead;
-    sum.optoutDead = optoutDead;
-    sum.top = targets
-      .map((g) => ({ name: g.name, seen: seenCount(g) }))
-      .sort((a, b) => b.seen - a.seen)
-      .slice(0, 5);
-    state.history.runs.push({
-      ts: sum.ts, businesses: sum.businessesDone, numbers: sum.numbers - (sum.cancelled || 0),
-      optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, archive: sum.archive, del: sum.del,
-    });
+    sum.ts = nowSec(); sum.days = state.days;
+    sum.stopped = state.cancel;
+    sum.numbersDone = targets.reduce((c, g) => c + g.numbers.filter(numberSucceeded).length, 0);
+    const successful = targets.filter((g) => g.numbers.some(numberSucceeded));
+    sum.businessesDone = successful.length;
+    sum.completed = targets.filter((g) => outcome(g).key === 'complete').length;
+    sum.partial = targets.filter((g) => outcome(g).key === 'partial').length;
+    sum.failedBusinesses = targets.filter((g) => outcome(g).key === 'failed').length;
+    sum.reportDead = reportDead; sum.optoutDead = optoutDead;
+    sum.top = successful.filter((g) => g.kind === 'biz').map((g) => ({ name: g.name, seen: seenCount(g) })).sort((a, b) => b.seen - a.seen).slice(0, 5);
+    if (sum.numbersDone) state.history.runs.push({ ts: sum.ts, businesses: sum.businessesDone, numbers: sum.numbersDone,
+      optout: sum.optout, stop: sum.stop, report: sum.report, block: sum.block, archive: sum.archive, del: sum.del });
     const bd = state.history.bounced || (state.history.bounced = {});
-    for (const g of targets) {
-      const doneNums = g.numbers.filter((n) => n.result && !n.result.cancelled);
-      if (!doneNums.length || g.kind !== 'biz') continue;
-      const e = bd[g.key] || (bd[g.key] = { name: g.name, numbers: 0, runs: 0, msgs: 0, first: sum.ts, last: sum.ts });
-      e.name = g.name; e.numbers = Math.max(e.numbers || 0, seenCount(g)); e.runs = (e.runs || 0) + 1; e.msgs = (e.msgs || 0) + g.msgs; e.last = sum.ts;
+    for (const g of successful) {
+      if (g.kind !== 'biz') continue;
+      const doneNums = g.numbers.filter(numberSucceeded);
+      const e = bd[g.key] || (bd[g.key] = { name: g.name, numbers: 0, runs: 0, msgs: 0, first: sum.ts, last: sum.ts, numberIds: [] });
+      e.numberIds = [...new Set([...(e.numberIds || []), ...doneNums.map((n) => n.id)])];
+      e.name = g.name; e.numbers = Math.max(e.numbers || 0, e.numberIds.length); e.runs++; e.msgs += doneNums.reduce((c, n) => c + (n.msgs || 0), 0); e.last = sum.ts;
     }
     saveHistory();
-    state.reportSel = {};
-    state.reportStatus = null;
-    for (const g of targets) state.reportSel[g.key] = g.kind === 'biz' && g.promo && g.numbers.some((n) => n.result && !n.result.cancelled);
+    state.reportSel = {}; state.reportStatus = null;
+    for (const g of successful) state.reportSel[g.key] = g.kind === 'biz' && g.promo;
+    state.results = sum; state.running = false; state.progress = null; state.activeId = null; state.cancel = false; state.view = 'list';
+    refreshBadge();
+    render(true);
+    const body = panel?.querySelector('.bz-body'); if (body) body.scrollTop = 0;
     log('run done', sum);
-    state.results = sum;
-    state.running = false;
-    state.progress = null;
-    state.activeId = null;
-    state.cancel = false;
-    render();
     if (state.history.autoReport) submitReport();
   }
 
   function reportItems() {
-    return state.groups.filter((g) => g.done && state.reportSel[g.key]).map((g) => ({
+    return state.groups.filter((g) => g.done && g.kind === 'biz' && g.promo && g.numbers.some(numberSucceeded) && state.reportSel[g.key]).map((g) => ({
       name: g.name, is_api: !!g.isApi, category: g.category, cc: ccOf((g.numbers.find((n) => n.phone) || {}).phone),
-      numbers: g.numbers.map((n) => n.hash).filter(Boolean).slice(0, 20),
+      numbers: g.numbers.filter(numberSucceeded).map((n) => n.hash).filter(Boolean).slice(0, 20),
     }));
   }
   function submitReport() {
@@ -936,67 +988,53 @@
   const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
   const CARD_DISPLAY = '"Avenir Next Condensed", "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", sans-serif';
+  function resultTitle(sum) {
+    if (sum.stopped) return 'Stopped';
+    if (!sum.numbersDone) return 'Not completed';
+    return sum.completed === sum.businesses ? 'Bounced' : 'Partly done';
+  }
   function drawCard(sum) {
-    const W = 1200, H = 630;
-    const c = document.createElement('canvas');
-    c.width = W; c.height = H;
+    const c = document.createElement('canvas'); c.width = 1200; c.height = 630;
     const x = c.getContext('2d');
-    x.fillStyle = '#111b21'; x.fillRect(0, 0, W, H);
-
-    // stamp
-    x.save(); x.translate(88, 96); x.rotate(-7 * Math.PI / 180);
-    x.font = `700 44px ${CARD_DISPLAY}`; x.textBaseline = 'middle';
-    const label = 'B O U N C E D';
-    const w = x.measureText(label).width + 44;
-    x.lineWidth = 6; x.strokeStyle = '#e0332b'; x.strokeRect(0, -34, w, 68);
-    x.fillStyle = '#e0332b'; x.fillText(label, 22, 2);
-    x.restore();
-
+    x.fillStyle = '#111b21'; x.fillRect(0, 0, 1200, 630);
+    x.save(); x.translate(88, 84); x.rotate(-7 * Math.PI / 180);
+    x.font = `700 38px ${CARD_DISPLAY}`; x.textBaseline = 'middle';
+    const label = resultTitle(sum).toUpperCase(); const w = x.measureText(label).width + 44;
+    x.lineWidth = 5; x.strokeStyle = '#e0332b'; x.strokeRect(0, -30, w, 60);
+    x.fillStyle = '#e0332b'; x.fillText(label, 22, 2); x.restore();
     x.textBaseline = 'alphabetic';
-    x.fillStyle = '#e9edef'; x.font = `700 200px ${CARD_DISPLAY}`;
-    x.fillText(String(sum.numbers), 80, 330);
-    x.font = `500 34px ${FONT}`;
-    x.fillText(`numbers from ${sum.businesses} ${sum.businesses === 1 ? 'business' : 'businesses'}`, 88, 384);
-    x.fillStyle = '#8696a0'; x.font = `500 26px ${FONT}`;
-    x.fillText(`${sum.days > 0 ? `last ${sum.days} days` : 'all time'} · ${sum.optout || 0} marketing opt-outs · ${sum.stop} STOP · ${sum.report} reports · ${sum.block} blocks`, 88, 424);
-
-    let y = 490;
-    x.font = `600 15px ${CARD_DISPLAY}`; x.fillStyle = '#8696a0';
-    x.fillText('N U M B E R S   B U R N E D   O N   M E', 88, y); y += 34;
-    for (const t of sum.top.slice(0, 3)) {
-      x.fillStyle = '#e9edef'; x.font = `500 26px ${FONT}`; x.textAlign = 'left';
-      x.fillText(clip(t.name, 40), 88, y);
-      x.fillStyle = '#e0332b'; x.font = `700 34px ${CARD_DISPLAY}`; x.textAlign = 'right';
-      x.fillText(String(t.seen), 1112, y);
-      x.textAlign = 'left'; y += 38;
+    x.fillStyle = '#e9edef'; x.font = `700 166px ${CARD_DISPLAY}`; x.fillText(String(sum.numbersDone || 0), 80, 280);
+    x.font = `500 32px ${FONT}`; x.fillText(`numbers handled across ${sum.businessesDone || 0} ${sum.businessesDone === 1 ? 'business' : 'businesses'}`, 88, 328);
+    x.fillStyle = '#8696a0'; x.font = `500 24px ${FONT}`;
+    const stats = [['optout', 'opt-outs'], ['stop', 'STOP replies'], ['report', 'reports'], ['block', 'blocks'], ['archive', 'archived'], ['del', 'deleted']].filter(([k]) => sum[k]).map(([k, name]) => `${sum[k]} ${name}`).join(' · ');
+    x.fillText(stats || 'No actions completed', 88, 371, 1024);
+    if (sum.stopped) { x.font = `500 20px ${FONT}`; x.fillText('Stopped early. Only completed actions are counted.', 88, 405); }
+    x.font = `600 14px ${CARD_DISPLAY}`; x.fillText('NUMBERS THESE BUSINESSES HAVE USED ON ME', 88, 450);
+    for (const [i, t] of sum.top.slice(0, 3).entries()) {
+      const y = 486 + i * 34;
+      x.fillStyle = '#e9edef'; x.font = `500 24px ${FONT}`; x.fillText(clip(t.name, 40), 88, y, 850);
+      x.fillStyle = '#e0332b'; x.font = `700 30px ${CARD_DISPLAY}`; x.textAlign = 'right'; x.fillText(String(t.seen), 1112, y); x.textAlign = 'left';
     }
-    x.fillStyle = '#2a3942'; x.fillRect(88, 596, 1024, 1);
-    x.fillStyle = '#8696a0'; x.font = `600 14px ${CARD_DISPLAY}`; x.textAlign = 'right';
-    x.fillText('D E A R   C U S T O M E R .   N O .', 1112, 622);
-    x.textAlign = 'left';
+    x.fillStyle = '#2a3942'; x.fillRect(88, 581, 1024, 1);
+    x.fillStyle = '#e9edef'; x.font = `600 19px ${CARD_DISPLAY}`; x.fillText('DEAR CUSTOMER. NO.', 88, 613);
+    x.fillStyle = '#8696a0'; x.font = `500 18px ${FONT}`; x.textAlign = 'right'; x.fillText('dearcustomer.kanishkdan.com', 1112, 613);
     return c;
   }
-
   function shareText(sum) {
-    const period = sum.days > 0 ? `In the last ${sum.days} days` : 'All time';
-    const top = sum.top[0];
-    const alone = top && top.seen > 1 ? ` ${top.name} alone has used ${top.seen} numbers on me.` : '';
-    return `${period}, ${sum.businesses} businesses messaged me on WhatsApp from ${sum.numbers} numbers.${alone} Opted out of ${sum.optout || 0}, sent ${sum.stop} STOP, ${sum.report} reports, ${sum.block} blocks. One click.`;
+    const n = sum.numbersDone || 0, b = sum.businessesDone || 0;
+    return `Dear Customer. No.\n\nI cleaned up ${n} WhatsApp ${n === 1 ? 'number' : 'numbers'} from ${b} ${b === 1 ? 'business' : 'businesses'} with Dear Customer.${sum.stopped ? ' Stopped early; these are the numbers handled.' : sum.completed !== sum.businesses ? ' Some actions need attention.' : ''}`;
   }
-
+  function postToX() {
+    if (!state.results?.numbersDone) return;
+    const params = new URLSearchParams({ text: shareText(state.results), url: SITE_URL });
+    window.open(`https://x.com/intent/tweet?${params}`, '_blank', 'noopener,noreferrer');
+  }
   function downloadCard() {
-    if (!state.results) return;
-    const c = drawCard(state.results);
-    const a = document.createElement('a');
-    a.href = c.toDataURL('image/png');
-    a.download = `bouncer-${new Date().toISOString().slice(0, 10)}.png`;
+    if (!state.results?.numbersDone) return;
+    const a = document.createElement('a'); a.href = drawCard(state.results).toDataURL('image/png');
+    a.download = `dear-customer-${new Date().toISOString().slice(0, 10)}.png`;
     document.body.appendChild(a); a.click(); a.remove();
-  }
-
-  async function copyText(btn) {
-    if (!state.results) return;
-    try { await navigator.clipboard.writeText(shareText(state.results)); flash(btn, 'Copied'); }
-    catch (_) { flash(btn, 'Copy failed'); }
+    notice('Card saved. Attach it to your post on X.');
   }
 
   function flash(btn, label) {
@@ -1046,7 +1084,7 @@
   #bouncer-root .bz-panel.open { transform: none; visibility: visible; transition: transform .26s cubic-bezier(.2,.8,.2,1), width .22s ease, visibility 0s; }
   #bouncer-root .bz-head { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
   #bouncer-root .bz-word { font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-weight: 700; font-size: 14px; white-space: nowrap; }
-  #bouncer-root .bz-wall { margin-left: auto; font-size: 11px; color: var(--muted); padding: 6px 8px; }
+  #bouncer-root .bz-wall { white-space: nowrap; margin-left: auto; font-size: 11px; color: var(--muted); padding: 6px 8px; }
   #bouncer-root .bz-wall:hover { color: var(--paper); }
   #bouncer-root .bz-x { width: 30px; height: 30px; color: var(--muted); font-size: 20px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
   #bouncer-root .bz-x:hover { color: var(--paper); }
@@ -1081,7 +1119,11 @@
   #bouncer-root .bz-row.on { border-left-color: var(--ink); background: var(--ink-soft); }
   #bouncer-root .bz-row.on:hover { background: rgba(224,51,43,.14); }
   #bouncer-root .bz-row.active { border-left-color: var(--paper); }
-  #bouncer-root .bz-row.done { border-left-color: var(--ok); background: transparent; }
+  #bouncer-root .bz-row.done { background: transparent; }
+  #bouncer-root .bz-row.outcome-complete { border-left-color: var(--ok); }
+  #bouncer-root .bz-row.outcome-partial { border-left-color: #e7b45a; }
+  #bouncer-root .bz-row.outcome-failed { border-left-color: var(--ink); }
+  #bouncer-root .bz-row.outcome-stopped { border-left-color: var(--muted); }
   #bouncer-root .bz-check { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; margin: 3px 0 0; border: 1.5px solid var(--muted); border-radius: 2px; background: transparent; cursor: pointer; position: relative; flex: none; }
   #bouncer-root .bz-check:checked { background: var(--ink); border-color: var(--ink); }
   #bouncer-root .bz-check:checked::after { content: ""; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
@@ -1117,10 +1159,40 @@
   #bouncer-root .bz-num { display: flex; align-items: baseline; gap: 10px; font-size: 12px; color: #aebac1; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
   #bouncer-root .bz-num > span:first-child { white-space: nowrap; }
   #bouncer-root .bz-num .when { color: var(--muted); white-space: nowrap; }
-  #bouncer-root .bz-num .st { margin-left: auto; display: flex; gap: 8px; white-space: nowrap; align-items: baseline; }
-  #bouncer-root .bz-st { font-family: var(--display); text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; font-weight: 600; color: var(--muted); }
+  #bouncer-root .bz-num .st { display: grid; gap: 7px; width: 100%; }
+  #bouncer-root .bz-st { font-size: 12px; font-weight: 500; color: var(--muted); }
   #bouncer-root .bz-st.ok { color: var(--ok); }
   #bouncer-root .bz-st.bad { color: var(--ink); }
+  #bouncer-root .bz-detail-content { grid-column: 2 / -1; min-width: 0; }
+  #bouncer-root .bz-action-status { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 8px; }
+  #bouncer-root .bz-action-status small { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+  #bouncer-root .bz-row-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; margin-top: 8px; }
+  #bouncer-root .bz-state-mark { font-size: 15px; font-weight: 600; color: var(--muted); }
+  #bouncer-root .bz-state-mark.complete { color: var(--ok); }
+  #bouncer-root .bz-state-mark.partial { color: #e7b45a; }
+  #bouncer-root .bz-state-mark.failed { color: #ff776f; }
+  #bouncer-root .bz-outcome { font-size: 13px; font-weight: 600; color: var(--muted); }
+  #bouncer-root .bz-outcome.running { color: var(--paper); }
+  #bouncer-root .bz-outcome.complete { color: var(--ok); }
+  #bouncer-root .bz-outcome.partial { color: #e7b45a; }
+  #bouncer-root .bz-outcome.failed { color: #ff776f; }
+  #bouncer-root .bz-status-note { font-size: 12px; color: var(--muted); }
+  #bouncer-root .bz-detail-toggle { margin-top: 5px; padding: 3px 0; }
+  #bouncer-root .bz-ign-head, #bouncer-root .bz-results-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+  #bouncer-root .bz-ignored { padding-top: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  #bouncer-root .bz-tools { border: 0; padding-top: 0; padding-bottom: 2px; }
+  #bouncer-root .bz-tools:has(:only-child) { display: none; }
+  #bouncer-root .bz-notice { margin-top: 12px; }
+  #bouncer-root .bz-notice button { margin-left: 5px; }
+  #bouncer-root .bz-share-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 16px 20px 0; }
+  #bouncer-root .bz-share-actions .bz-btn { font-size: 13px; letter-spacing: .08em; }
+  #bouncer-root .bz-result-note { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin-top: 8px; }
+  #bouncer-root .bz-wall-contribute { margin: 20px 20px 0; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  #bouncer-root .bz-wall-title { font-size: 13px; color: var(--paper); font-weight: 600; }
+  #bouncer-root .bz-wall-buttons { display: flex; gap: 16px; margin: 10px 0; }
+  #bouncer-root .bz-wall-contribute .bz-auto { margin-top: 12px; font-size: 12px; }
+  #bouncer-root .bz-wall-contribute .bz-note { margin: 10px 0 0; padding: 8px 10px; }
+  #bouncer-root .bz-results-head { padding: 18px 20px 12px; }
   #bouncer-root .bz-undo { font-size: 11px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
   #bouncer-root .bz-undo:hover { color: var(--paper); }
   #bouncer-root .bz-section { padding: 14px 20px 0; }
@@ -1148,9 +1220,9 @@
   #bouncer-root .bz-line { position: absolute; left: 0; top: -1px; height: 2px; width: 100%; background: var(--line); }
   #bouncer-root .bz-line > i { display: block; height: 100%; background: var(--ink); transition: width .25s ease; }
   #bouncer-root .bz-prog { display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; align-items: center; padding-top: 2px; }
-  #bouncer-root .bz-prog .t { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #bouncer-root .bz-prog .s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  #bouncer-root .bz-prog .stop { grid-row: 1 / span 2; height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 12px; color: var(--paper); }
+  #bouncer-root .bz-prog .t { grid-column: 1; font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bouncer-root .bz-prog .s { grid-column: 1; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #bouncer-root .bz-prog .stop { grid-column: 2; grid-row: 1 / span 2; height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--display); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; font-size: 12px; color: var(--paper); }
   #bouncer-root .bz-prog .stop:hover:not(:disabled) { border-color: var(--muted); }
   #bouncer-root .bz-prog .stop:disabled { color: var(--muted); }
 
@@ -1253,7 +1325,7 @@
     root.id = 'bouncer-root';
     root.innerHTML = `
       <button class="bz-pill" data-act="toggle" title="Dear Customer">${LOGO}Dear Customer<span class="bz-count" hidden></span></button>
-      <aside class="bz-panel" role="dialog" aria-label="Bouncer"></aside>`;
+      <aside class="bz-panel" role="dialog" aria-label="Dear Customer"></aside>`;
     document.body.appendChild(root);
     pill = root.querySelector('.bz-pill');
     panel = root.querySelector('.bz-panel');
@@ -1288,7 +1360,7 @@
   function openPanel() {
     state.open = true;
     if (!state.onboarded) state.view = 'setup';
-    dockPanel(); render();
+    dockPanel(); render(true);
     if (!state.scanned && !state.scanning) scan();   // read-only, runs while they choose
   }
   function saveActions() {
@@ -1303,15 +1375,15 @@
   // Open the conversation, scrolled to the last message they sent. Three ways in,
   // because WhatsApp Web's own navigation functions come and go between builds.
   let noticeTimer = null;
-  function notice(text) {
-    state.notice = text; render();
+  function notice(text, action = null) {
+    state.notice = text; state.noticeAction = action; render();
     clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => { state.notice = null; render(); }, 3500);
+    noticeTimer = setTimeout(() => { state.notice = null; state.noticeAction = null; render(); }, 8000);
   }
   async function openChat(key) {
     const g = findGroup(key); if (!g) return;
     const n = g.active[0] || g.numbers[0]; if (!n) return;
-    if (state.expanded) { state.expanded = false; dockPanel(); render(); }
+    if (state.expanded) { state.expanded = false; dockPanel(); render(true); }
     const W = window.WPP;
     const attempts = [
       ['openChatAt', () => n.lastMsgId && W.chat.openChatAt ? W.chat.openChatAt(n.id, n.lastMsgId) : Promise.reject(new Error('no message id'))],
@@ -1329,45 +1401,47 @@
     const t = e.target.closest('[data-act]');
     if (!t || !root.contains(t)) return;
     const act = t.dataset.act;
+    if (state.running && !['close', 'toggle', 'cancel', 'expand', 'expand-row', 'open', 'noop'].includes(act)) return;
     if (act === 'toggle') { if (state.open) closePanel(); else openPanel(); }
     else if (act === 'close') closePanel();
     else if (act === 'scan') scan();
     else if (act === 'run') {
-      const targets = state.groups.filter((g) => g.checked);
+      const targets = selectedGroups();
       const risky = targets.filter((g) => !g.promo);
       if (risky.length && !state.armed) { state.armed = true; render(); setTimeout(() => { if (state.armed) { state.armed = false; render(); } }, 6000); return; }
       state.armed = false;
       run();
     }
-    else if (act === 'cancel') { state.cancel = true; render(); }
+    else if (act === 'cancel') { state.cancel = true; updateRunUI(); }
     else if (act === 'opt') { setChoice(t.dataset.key, !choiceOn(t.dataset.key)); render(); }
     else if (act === 'setup') { state.view = 'setup'; render(); }
     else if (act === 'setup-done') { saveActions(); state.view = 'list'; state.expanded = false; state.armed = false; dockPanel(); render(); }
     else if (act === 'chart') { state.view = 'chart'; render(); }
-    else if (act === 'chart-close') { state.view = 'list'; render(); }
+    else if (act === 'chart-close') { state.view = 'list'; render(true); }
     else if (act === 'expand') {
       // Wide enough: split view. Otherwise the chart takes the panel over.
       const left = parseInt(panel.style.left || '0', 10) || 0;
-      if (!state.expanded && window.innerWidth - left < 900) { state.view = 'chart'; render(); return; }
-      state.expanded = !state.expanded; state.view = 'list'; render();
+      if (!state.expanded && window.innerWidth - left < 900) { state.view = 'chart'; render(true); return; }
+      state.expanded = !state.expanded; state.view = 'list'; render(true);
     }
     else if (act === 'chart-card') downloadChartCard();
     else if (act === 'noop') { /* checkbox: handled by onChange */ }
     else if (act === 'open') openChat(t.dataset.key);
-    else if (act === 'filter') { state.filter = t.dataset.v === 'all' ? 'all' : 'promo'; state.armed = false; render(); }
+    else if (act === 'filter') { state.filter = t.dataset.v === 'all' ? 'all' : 'promo'; const visible = new Set(selectableGroups()); state.groups.forEach((g) => { if (!visible.has(g)) g.checked = false; }); state.armed = false; render(); }
     else if (act === 'period') { const d = Number(t.dataset.v); if (d !== state.days) { state.days = d; state.scanned = false; scan(); } }
     else if (act === 'chip') { state.actions[t.dataset.key] = !state.actions[t.dataset.key]; saveActions(); render(); }
-    else if (act === 'expand') { const g = findGroup(t.dataset.key); if (g) { g.expanded = !g.expanded; render(); } }
-    else if (act === 'all') { state.groups.forEach((g) => { if (g.kind === 'biz' && g.active.length && (state.filter === 'all' || g.promo)) g.checked = true; }); render(); }
+    else if (act === 'expand-row') { const g = findGroup(t.dataset.key); if (g) { g.expanded = !g.expanded; if (state.running) updateRunUI(); else render(); } }
+    else if (act === 'all') { selectableGroups().filter((g) => g.kind === 'biz').forEach((g) => { g.checked = true; }); state.armed = false; render(); }
     else if (act === 'none') { state.groups.forEach((g) => { g.checked = false; }); state.armed = false; render(); }
-    else if (act === 'unknown') { state.showUnknown = !state.showUnknown; render(); }
+    else if (act === 'unknown') { state.showUnknown = !state.showUnknown; if (!state.showUnknown) state.groups.filter((g) => g.kind === 'unknown').forEach((g) => { g.checked = false; }); state.armed = false; render(); }
     else if (act === 'ignore') ignoreKeys([t.dataset.key]);
-    else if (act === 'ignore-sel') ignoreKeys(state.groups.filter((g) => g.checked).map((g) => g.key));
     else if (act === 'unignore') unignore(t.dataset.key);
+    else if (act === 'restore-ignored') restoreIgnored();
+    else if (act === 'undo-ignore' && state.undoIgnore) { const old = state.undoIgnore; unignore(old.key); const g = findGroup(old.key); if (g && selectableGroups().includes(g)) g.checked = old.checked; state.undoIgnore = null; state.notice = null; state.noticeAction = null; render(); }
     else if (act === 'show-ignored') { state.showIgnored = !state.showIgnored; render(); }
     else if (act === 'unblock') unblock(t.dataset.id);
     else if (act === 'card') downloadCard();
-    else if (act === 'copy') copyText(t);
+    else if (act === 'post-x') postToX();
     else if (act === 'back') { state.results = null; state.reportStatus = null; state.showRep = false; scan(); }
     else if (act === 'rep-toggle') { state.showRep = !state.showRep; render(); }
     else if (act === 'report') submitReport();
@@ -1377,18 +1451,19 @@
 
   function onChange(e) {
     const t = e.target;
+    if (state.running) return;
     if (t.dataset.auto) { state.history.autoReport = t.checked; saveHistory(); render(); if (t.checked) submitReport(); }
     else if (t.classList.contains('bz-rep-check')) { state.reportSel[t.dataset.key] = t.checked; render(); }
     else if (t.classList.contains('bz-check')) {
       const key = t.dataset.key;
       const g = findGroup(key);
-      if (g) g.checked = t.checked;
+      if (g && selectableGroups().includes(g)) g.checked = t.checked;
       // Shift-click extends the selection from the last row you picked.
       if (shiftHeld && lastPicked && lastPicked !== key) {
         const a = rowOrder.indexOf(lastPicked), b = rowOrder.indexOf(key);
         if (a !== -1 && b !== -1) {
           for (const k of rowOrder.slice(Math.min(a, b), Math.max(a, b) + 1)) {
-            const x = findGroup(k); if (x) x.checked = t.checked;
+            const x = findGroup(k); if (x && selectableGroups().includes(x)) x.checked = t.checked;
           }
         }
       }
@@ -1399,15 +1474,16 @@
     }
   }
 
-  function render() {
+  function render(full = false) {
     if (!root) return;
-    const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && g.promo && !isIgnored(g.key));
+    const activeBiz = state.groups.filter((g) => g.kind === 'biz' && g.active.length && g.promo && !g.done && !isIgnored(g.key));
     pill.hidden = state.open || (loginScreen() && !state.open);
     const countEl = pill.querySelector('.bz-count');
     if (state.scanned && activeBiz.length) { countEl.textContent = String(activeBiz.length); countEl.hidden = false; }
     else countEl.hidden = true;
     panel.classList.toggle('open', state.open);
     if (!state.open) return;
+    if (state.running && !full && panel.querySelector('.bz-run-list')) { updateRunUI(); return; }
     const bodyEl = panel.querySelector('.bz-body');
     const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
     const wall = state.community && state.community.url;
@@ -1418,8 +1494,8 @@
     const head = `
       <div class="bz-head">${LOGO}<span class="bz-word">Dear Customer</span>
         <span style="margin-left:auto"></span>
-        ${setup ? (state.onboarded ? `<button class="bz-wall caps" data-act="setup-done">← Back</button>` : '') : chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Collapse ⇤' : 'Expand ⇥'}</button>`}
-        ${wall && !chart && !setup ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}/wall" target="_blank" rel="noopener">Wall of Shame ↗</a>` : ''}
+        ${setup ? (state.onboarded ? `<button class="bz-wall caps" data-act="setup-done">← Back</button>` : '') : chart ? `<button class="bz-wall caps" data-act="chart-close">← Back</button>` : `<button class="bz-wall caps" data-act="expand" title="${split ? 'Back to the list only' : 'Show everything you have bounced beside the list'}">${split ? 'Hide history' : 'History'}</button>`}
+        ${wall && !chart && !setup ? `<a class="bz-wall caps" style="margin-left:0" href="${esc(wall)}/wall" target="_blank" rel="noopener" title="Open the public Wall of Shame">Wall ↗</a>` : ''}
         <button class="bz-x" data-act="close" aria-label="Close">×</button></div>`;
     const listCol = `<div class="bz-body">${state.results ? renderDone() : renderList()}</div>${renderFoot()}`;
     panel.innerHTML = setup
@@ -1429,12 +1505,13 @@
         : `${head}<div class="bz-body">${chart ? renderChart() : state.results ? renderDone() : renderList()}</div>${chart ? renderChartFoot() : renderFoot()}`;
     const nb = panel.querySelector('.bz-body');
     if (nb && scrollTop) nb.scrollTop = scrollTop;
-    if (state.running) { const el = panel.querySelector('.bz-row.active'); if (el) el.scrollIntoView({ block: 'nearest' }); }
+
   }
 
   const rankSort = (a, b) => (seenCount(b) - seenCount(a)) || (b.msgs - a.msgs) || (b.active.length - a.active.length);
 
   function renderList() {
+    if (state.running) return renderRunning();
     const s = status();
     if (s !== 'ready') { const c = NOT_READY[s] || ['One moment', '']; return `<div class="bz-empty"><div class="h">${esc(c[0])}</div>${esc(c[1])}</div>`; }
     if (state.scanError) return `<div class="bz-empty"><div class="h">Couldn't read your chats</div>${esc(state.scanError)}<div style="margin-top:10px"><button class="bz-link" data-act="scan">Try again</button></div></div>`;
@@ -1468,7 +1545,8 @@
             <div class="bz-lead">${promoOnly ? 'promotions' : 'businesses'} ${esc(periodWord())}.<br><span class="m">${promoOnly && hiddenN ? `${hiddenN} ${bizWord(hiddenN)} messaged you without looking promotional.` : 'Enjoy the silence.'}</span></div></div>
           ${tabs}
         </div>
-        <div class="bz-toolbar"><span class="sp"></span><button data-act="scan">Rescan</button></div>
+        <div class="bz-toolbar">${ignoredControl()}<span class="sp"></span><button data-act="scan">Rescan</button></div>
+        ${renderNotice()}
         ${renderUnknown(unknown)}
         ${renderIgnored()}
         ${state.scanStats && state.scanStats.chats ? `<div class="bz-tip">Missing something that's clearly an ad? <button class="bz-link muted" data-act="diag">Copy diagnostics</button> and send them over.</div>` : ''}`;
@@ -1479,29 +1557,74 @@
           <div class="bz-lead">${bizWord(biz.length)} ${promoOnly ? 'sent you promotions' : 'messaged you'} ${esc(periodWord())}, burning <b>${burned}</b> ${burned === 1 ? 'number' : 'numbers'} on you.<br><span class="m">Ranked by numbers burned.</span></div></div>
         ${tabs}
       </div>
-      <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button>${sel ? `<span>·</span><button data-act="ignore-sel" title="Never show ${sel === 1 ? 'this business' : 'these businesses'} again">Ignore ${sel}</button>` : ''}<span class="sp"></span><button data-act="scan">Rescan</button></div>
-      ${state.notice ? `<div class="bz-notice" style="margin-top:12px">${esc(state.notice)}</div>` : ''}
-      ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Ticked rows are promotional senders. Click a row to open the conversation and check first. Deleted chats can't be recovered.</div>` : ''}
+      <div class="bz-toolbar"><span>${sel} of ${biz.length} selected</span><span>·</span><button data-act="all">Select all</button><span>·</span><button data-act="none">None</button><span class="sp"></span><button data-act="scan">Rescan</button></div>
+      <div class="bz-toolbar bz-tools">${ignoredControl()}<span class="sp"></span></div>
+      ${renderNotice()}
+      ${renderIgnored()}
+      ${firstRun ? `<div class="bz-tip" style="padding-top:12px;padding-bottom:12px">Click a business to check its messages. Untick it to skip this run; ignore it to skip future scans.</div>` : ''}
       <div class="bz-ledger">${biz.map((g, i) => renderRow(g, i + 1)).join('')}</div>
       ${promoOnly && hiddenN ? `<div class="bz-tip">${hiddenN} more ${bizWord(hiddenN)} messaged you without looking promotional. <button class="bz-link" data-act="filter" data-v="all">Show all</button></div>` : ''}
-      ${renderUnknown(unknown)}
-      ${renderIgnored()}`;
+      ${renderUnknown(unknown)}`;
   }
 
+  function ignoredControl() {
+    const n = Object.keys(ignoredMap()).length;
+    return n ? `<button class="bz-link muted" data-act="show-ignored" aria-expanded="${state.showIgnored}">Ignored (${n}) ${state.showIgnored ? '‹' : '›'}</button>` : '';
+  }
+  function renderNotice() {
+    return state.notice ? `<div class="bz-notice" role="status">${esc(state.notice)}${state.noticeAction ? ` <button class="bz-link" data-act="${esc(state.noticeAction)}">Undo</button>` : ''}</div>` : '';
+  }
   function renderIgnored() {
-    const rows = Object.entries(ignoredMap()).map(([key, e]) => ({ key, name: (e && e.name) || key }));
-    if (!rows.length) return '';
-    return `<div class="bz-section">
-      <button class="bz-link muted" data-act="show-ignored">${rows.length} ignored ${state.showIgnored ? '‹' : '›'}</button>
-      ${state.showIgnored ? `<div class="bz-ign">${rows.map((r) => `<div class="bz-ign-row"><span>${esc(r.name)}</span><button data-act="unignore" data-key="${esc(r.key)}">Stop ignoring</button></div>`).join('')}</div>` : ''}
-    </div>`;
+    const rows = Object.entries(ignoredMap()).map(([key, e]) => ({ key, name: e?.name || key }));
+    if (!rows.length || !state.showIgnored) return '';
+    return `<div class="bz-section bz-ignored"><div class="bz-ign-head"><span>Skipped in every scan</span><button class="bz-link" data-act="restore-ignored">Restore all</button></div>
+      <div class="bz-ign">${rows.map((r) => `<div class="bz-ign-row"><span>${esc(r.name)}</span><button data-act="unignore" data-key="${esc(r.key)}">Restore</button></div>`).join('')}</div></div>`;
+  }
+
+  function renderRunning() {
+    const groups = state.runKeys.map(findGroup).filter(Boolean);
+    return `<div class="bz-hero"><div class="bz-hero-row"><div class="bz-big">${groups.length}</div><div class="bz-lead">${bizWord(groups.length)} in this run.<br><span class="m">Open Details to follow each action.</span></div></div></div>
+      <div class="bz-tip" style="padding-bottom:14px">Stop leaves completed actions in place.</div>
+      <div class="bz-ledger bz-run-list">${groups.map((g, i) => renderRow(g, i + 1)).join('')}</div>`;
+  }
+  const outcomeMark = (key) => ({ complete: '✓', partial: '!', failed: '×', stopped: '—', running: '›', queued: '·' })[key];
+  function renderGroupStatus(g) {
+    const o = outcome(g);
+    const good = g.numbers.filter(numberSucceeded).length;
+    return `<span class="bz-outcome ${o.key}">${esc(o.label)}</span>${g.done && g.numbers.length > 1 ? `<span class="bz-status-note">${good} of ${g.numbers.length} numbers handled</span>` : ''}`;
+  }
+  function updateRunUI() {
+    if (!panel || !state.open || !state.running) return;
+    for (const row of panel.querySelectorAll('[data-row-key]')) {
+      const g = findGroup(row.dataset.rowKey); if (!g) continue;
+      const o = outcome(g);
+      row.classList.toggle('active', o.key === 'running');
+      for (const key of ['complete', 'partial', 'failed', 'stopped']) row.classList.toggle(`outcome-${key}`, g.done && o.key === key);
+      const mark = row.querySelector('.bz-state-mark');
+      if (mark) { mark.textContent = outcomeMark(o.key); mark.className = `bz-state-mark ${o.key}`; }
+      const status = row.querySelector('.bz-row-status');
+      const html = renderGroupStatus(g);
+      if (status && status.innerHTML !== html) status.innerHTML = html;
+      const details = row.querySelector('.bz-detail-content');
+      if (details) { details.hidden = !g.expanded; if (g.expanded) { const nums = renderNums(g); if (details.innerHTML !== nums) details.innerHTML = nums; } }
+      const toggle = row.querySelector('.bz-detail-toggle');
+      if (toggle) { toggle.textContent = g.expanded ? 'Hide details' : 'Details'; toggle.setAttribute('aria-expanded', String(!!g.expanded)); }
+    }
+    const p = state.progress;
+    if (!p) return;
+    const text = (selector, value) => { const el = panel.querySelector(selector); if (el && el.textContent !== value) el.textContent = value; };
+    text('.bz-prog .t', state.cancel ? 'Stopping after this action' : p.biz || 'Preparing');
+    text('.bz-prog .s', `${p.done} of ${p.total} numbers processed${p.step ? ` · ${p.step}` : ''}`);
+    text('.bz-prog .stop', state.cancel ? 'Stopping…' : 'Stop');
+    const stop = panel.querySelector('.bz-prog .stop'); if (stop) stop.disabled = state.cancel;
+    const line = panel.querySelector('.bz-line > i'); if (line) line.style.width = `${p.total ? Math.round(p.done / p.total * 100) : 0}%`;
   }
 
   function renderRow(g, rank) {
     const seen = seenCount(g);
     const allBlocked = g.numbers.length > 0 && g.blockedCount === g.numbers.length;
     const [catText, catCls] = CAT_LABEL[g.category] || ['', ''];
-    const showCat = state.filter === 'all' || state.results;   // inside the Promotional tab the label is redundant
+    const showCat = state.filter === 'all' && !g.done;   // inside the Promotional tab the label is redundant
     const labels = [
       g.known ? `<span class="bz-lab warn">On the Wall · ${g.known.people}</span>` : '',
       showCat && catText && !(g.known && catCls === 'hot') ? `<span class="bz-lab ${catCls}">${catText}</span>` : '',
@@ -1510,26 +1633,28 @@
     ].join('');
     const single = g.numbers.length === 1;
     const locked = state.running || g.done;
-    const showNums = g.expanded || locked;
+    const showNums = g.expanded;
+    const o = locked ? outcome(g) : null;
     const last = g.numbers[0];
     const isActive = state.running && g.numbers.some((n) => n.id === state.activeId);
     const meta = [
       plural(g.msgs, 'message'),
       esc(fmtAgo(last.ts)),
-      single ? esc(fmtPhone(last.phone)) : (!locked ? `<button data-act="expand" data-key="${esc(g.key)}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : plural(g.numbers.length, 'number')),
+      single ? esc(fmtPhone(last.phone)) : (!locked ? `<button data-act="expand-row" data-key="${esc(g.key)}" aria-expanded="${!!g.expanded}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : plural(g.numbers.length, 'number')),
       !locked ? `<button class="bz-ignore" data-act="ignore" data-key="${esc(g.key)}" title="Never show ${esc(g.name)} again">Ignore</button>` : '',
     ].filter(Boolean).join(' · ');
     return `
-      <div class="bz-row ${g.checked ? 'on' : ''} ${g.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-act="open" data-key="${esc(g.key)}" title="Open the conversation at their last message">
-        <input type="checkbox" class="bz-check" data-act="noop" data-key="${esc(g.key)}" ${g.checked ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select ${esc(g.name)}">
+      <div class="bz-row ${g.checked && !locked ? 'on' : ''} ${g.done ? `done outcome-${o.key}` : ''} ${isActive ? 'active' : ''}" data-row-key="${esc(g.key)}" data-act="open" data-key="${esc(g.key)}" title="Open the conversation at their last message">
+        ${locked ? `<span class="bz-state-mark ${o.key}" aria-hidden="true">${outcomeMark(o.key)}</span>` : `<input type="checkbox" class="bz-check" data-act="noop" data-key="${esc(g.key)}" ${g.checked ? 'checked' : ''} aria-label="Select ${esc(g.name)}">`}
         <span class="bz-rank">${rank ? String(rank).padStart(2, '0') : ''}</span>
         <div class="bz-main">
           <div class="bz-row1"><span class="bz-name">${esc(g.name)}</span>${labels}</div>
-          ${g.preview ? `<div class="bz-msg ${g.previewSys ? 'sys' : ''}">${esc(g.preview)}</div>` : ''}
-          <div class="bz-meta">${meta}</div>
+          ${g.preview && !g.done ? `<div class="bz-msg ${g.previewSys ? 'sys' : ''}">${esc(g.preview)}</div>` : ''}
+          <div class="bz-meta">${g.done ? plural(g.numbers.length, 'number') : meta}</div>
+          ${locked ? `<div class="bz-row-status" role="status">${renderGroupStatus(g)}</div><button class="bz-detail-toggle bz-link muted" data-act="expand-row" data-key="${esc(g.key)}" aria-expanded="${!!g.expanded}">${g.expanded ? 'Hide details' : 'Details'}</button>` : ''}
         </div>
         ${seen >= 2 ? `<div class="bz-tally"><b>${seen}</b><small>numbers<br>burned</small></div>` : '<span></span>'}
-        ${showNums ? renderNums(g) : ''}
+        <div class="bz-detail-content" ${showNums ? '' : 'hidden'}>${showNums ? renderNums(g) : ''}</div>
       </div>`;
   }
 
@@ -1540,18 +1665,15 @@
 
   function renderResultTags(n) {
     if (!n.result) return '';
-    if (n.result.cancelled) return '<span class="bz-st">Not bounced</span>';
-    const tags = Object.keys(TAG_WORDS).map((k) => {
-      const v = n.result[k];
-      if (v === undefined || v === 'skipped') return '';
-      const [ok, fail] = TAG_WORDS[k];
-      if (v === 'already') return `<span class="bz-st">${ok}</span>`;
-      if (v === 'undone') return `<span class="bz-st">Unblocked</span>`;
-      if (v === true) return `<span class="bz-st ok">${ok}</span>`;
-      return `<span class="bz-st bad" title="${esc((n.errors || {})[k] || '')}">${fail} ✕</span>`;
+    const names = { optout: 'WhatsApp opt-out', stop: 'STOP reply', report: 'Report', block: 'Block', archive: 'Archive', del: 'Delete' };
+    return resultKeys.map((k) => {
+      const v = n.result[k]; if (v === undefined) return '';
+      const label = v === true ? 'Done' : v === 'already' ? 'Already done' : v === 'undone' ? 'Undone' : v === 'pending' ? 'Waiting' : v === 'running' ? 'Working…' : v === 'cancelled' ? 'Not run' : v === 'skipped' ? 'Skipped' : v === 'timeout' ? 'Timed out' : 'Failed';
+      const cls = actionSucceeded(v) ? 'ok' : v === false || v === 'timeout' ? 'bad' : '';
+      const reason = n.errors?.[k];
+      const undo = k === 'block' && v === true && !state.running ? `<button class="bz-undo" data-act="unblock" data-id="${esc(n.id)}">Unblock</button>` : '';
+      return `<span class="bz-action-status"><span>${names[k]}</span><span class="bz-st ${cls}">${label}</span>${undo}${reason ? `<small>${esc(reason)}</small>` : ''}</span>`;
     }).join('');
-    const undo = !state.running && n.result.block === true ? `<button class="bz-undo" data-act="unblock" data-id="${esc(n.id)}">Unblock</button>` : '';
-    return tags + undo;
   }
 
   function renderUnknown(list) {
@@ -1567,10 +1689,10 @@
       const p = state.progress;
       const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
       return `<div class="bz-foot"><div class="bz-line"><i style="width:${pct}%"></i></div>
-        <div class="bz-prog"><div class="t">Bouncing ${esc(p.biz || '')}</div><button class="stop" data-act="cancel" ${state.cancel ? 'disabled' : ''}>${state.cancel ? 'Stopping…' : 'Stop'}</button><div class="s">${p.done} of ${plural(p.total, 'number')}${p.step ? ` · ${esc(p.step)}` : ''}</div></div></div>`;
+        <div class="bz-prog"><div class="t">${esc(p.biz || 'Preparing')}</div><button class="stop" data-act="cancel" ${state.cancel ? 'disabled' : ''}>${state.cancel ? 'Stopping…' : 'Stop'}</button><div class="s">${p.done} of ${plural(p.total, 'number')} processed${p.step ? ` · ${esc(p.step)}` : ''}</div></div></div>`;
     }
     if (status() !== 'ready' || !state.scanned || state.scanning || state.scanError) return '';
-    const targets = state.groups.filter((g) => g.checked);
+    const targets = selectedGroups();
     const risky = targets.filter((g) => !g.promo);
     const n = targets.reduce((s, g) => s + g.numbers.length, 0);
     const A = state.actions;
@@ -1589,42 +1711,35 @@
 
   function renderDone() {
     const s = state.results;
-    const A = state.actions;
-    const top = s.top[0];
-    const bounced = state.groups.filter((g) => g.done).slice().sort(rankSort);
-    const softFails = bounced.reduce((c, g) => c + g.numbers.filter((n) => n.result && ['report', 'optout'].some((k) => n.result[k] === false || n.result[k] === 'timeout')).length, 0);
-    const otherFails = Math.max(0, s.failed - softFails);
-    const doneNumbers = s.numbers - (s.cancelled || 0);
+    const A = s.actions || state.actions;
+    const groups = state.runKeys.map(findGroup).filter(Boolean);
     const stats = [
-      A.optout && !s.optoutDead ? `<b>${s.optout}</b> WhatsApp opt-out${s.optout === 1 ? '' : 's'}` : '', A.stop ? `<b>${s.stop}</b> STOP sent` : '',
-      A.report && !s.reportDead ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '', A.archive && !A.del ? `<b>${s.archive || 0}</b> archived` : '', A.del ? `<b>${s.del}</b> ${s.del === 1 ? 'chat' : 'chats'} deleted` : '',
+      A.optout ? `<b>${s.optout}</b> WhatsApp opt-outs` : '', A.stop ? `<b>${s.stop}</b> STOP replies` : '',
+      A.report ? `<b>${s.report}</b> reported` : '', A.block ? `<b>${s.block}</b> blocked` : '',
+      A.archive && !A.del ? `<b>${s.archive}</b> archived` : '', A.del ? `<b>${s.del}</b> deleted` : '',
     ].filter(Boolean).join(' · ');
     const rs = state.reportStatus;
-    const selN = bounced.filter((g) => state.reportSel[g.key]).length;
-    return `
-      <div class="bz-done">
-        <div class="bz-stamp">Bounced</div>
-        <div class="bz-hero-row"><div class="bz-big ink">${doneNumbers}</div>
-          <div class="bz-lead">${doneNumbers === 1 ? 'number' : 'numbers'} from ${s.businessesDone != null ? s.businessesDone : s.businesses} ${bizWord(s.businessesDone != null ? s.businessesDone : s.businesses)}.${top && top.seen >= 2 ? ` <span class="m">${esc(top.name)} alone had burned ${top.seen} on you.</span>` : ''}</div></div>
+    const eligible = groups.filter((g) => g.kind === 'biz' && g.promo && g.numbers.some(numberSucceeded));
+    const selN = eligible.filter((g) => state.reportSel[g.key]).length;
+    return `<div class="bz-done">
+        <div class="bz-stamp">${resultTitle(s)}</div>
+        <div class="bz-hero-row"><div class="bz-big ink">${s.numbersDone}</div><div class="bz-lead">${s.numbersDone === 1 ? 'number' : 'numbers'} handled across ${s.businessesDone} ${bizWord(s.businessesDone)}.</div></div>
         <div class="bz-stats">${stats}</div>
+        <div class="bz-result-note">${s.stopped ? 'Stopped early. Completed actions stay in place.' : !s.numbersDone ? 'No completed actions were confirmed. Check Details before trying again.' : s.completed !== s.businesses ? 'Some actions could not finish. Check the details below.' : 'All requested actions completed.'}</div>
       </div>
-      ${s.cancelled ? `<div class="bz-tip">Stopped early. ${plural(s.cancelled, 'number')} not bounced.</div>` : ''}
-      ${s.optoutDead ? `<div class="bz-tip">WhatsApp's own opt-out isn't available on this build yet, so opting out ran as STOP only.</div>` : ''}
-      ${s.reportDead ? `<div class="bz-tip">Reporting didn't go through on this WhatsApp Web version. Everything else did.</div>` : ''}
-      ${otherFails > 0 ? `<div class="bz-tip">${plural(otherFails, 'action')} didn't go through. See the marks below.</div>` : ''}
-      <div class="bz-actions">
-        ${rs && rs.ok
-          ? `<a class="bz-btn paper" href="${esc(rs.url ? rs.url + '/wall' : '#')}" target="_blank" rel="noopener">Added · Open the Wall of Shame ↗</a>`
-          : `<button class="bz-btn paper" data-act="report" ${selN && rs !== 'sending' ? '' : 'disabled'}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall of Shame`}</button>`}
-        <button class="bz-btn ghost" data-act="card">Save share card</button>
-      </div>
-      <div class="bz-hint"><button data-act="expand">See everything you've bounced</button></div>
-      <div class="bz-hint">${rs && rs.error ? `Couldn't add: ${esc(rs.error)} · ` : rs && rs.ok ? '' : 'Promotional senders only, names and hashed numbers · '}${rs && rs.ok ? '' : `<button data-act="rep-toggle">${state.showRep ? 'Hide' : 'Choose which'}</button> · `}<button data-act="copy">Copy as text</button></div>
-      <div class="bz-hint" style="margin-top:6px"><label class="bz-auto"><input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}> Add to the Wall automatically after every run</label></div>
-      ${state.showRep ? renderRepList(bounced) : ''}
-      ${!A.optout || s.optoutDead ? `<div class="bz-tip">To make it stick, open their chat on your phone and tap <b>Stop</b> on a marketing message.</div>` : ''}
-      ${state.notice ? `<div class="bz-notice" style="margin-top:14px">${esc(state.notice)}</div>` : ''}
-      <div class="bz-ledger" style="margin-top:18px">${bounced.map((g, i) => renderRow(g, i + 1)).join('')}</div>`;
+      ${s.numbersDone ? `<div class="bz-share-actions"><button class="bz-btn paper" data-act="post-x">Post to X ↗</button><button class="bz-btn ghost" data-act="card">Save share card</button></div>
+        <div class="bz-hint">Opens a draft with your results and a link.<br>Save the card to attach it yourself.</div>` : ''}
+      ${renderNotice()}
+      <div class="bz-results-head"><span>Results by business</span><button class="bz-link muted" data-act="expand">View history</button></div>
+      <div class="bz-ledger">${groups.map((g, i) => renderRow(g, i + 1)).join('')}</div>
+      ${eligible.length ? `<div class="bz-wall-contribute">
+        <div class="bz-wall-title">Help others spot these senders</div>
+        <div class="bz-result-note">Share business names and hashed numbers with the public Wall of Shame.</div>
+        ${rs?.ok ? `<a class="bz-link" href="${esc(rs.url || SITE_URL)}/wall" target="_blank" rel="noopener">Added · Open the Wall of Shame ↗</a>` : `<div class="bz-wall-buttons"><button class="bz-link" data-act="report" ${!selN || rs === 'sending' ? 'disabled' : ''}>${rs === 'sending' ? 'Adding…' : `Add ${selN} to the Wall`}</button><button class="bz-link muted" data-act="rep-toggle">${state.showRep ? 'Hide selection' : 'Choose which'}</button></div>`}
+        ${rs?.error ? `<div class="bz-result-note">Couldn't add: ${esc(rs.error)}. Try again.</div>` : ''}
+        ${state.showRep ? renderRepList(eligible) : ''}
+        <label class="bz-auto"><input type="checkbox" class="bz-check" data-act="noop" data-auto="1" ${state.history.autoReport ? 'checked' : ''}> Add automatically after future runs</label>
+      </div>` : ''}`;
   }
 
   function bouncedRows() {
@@ -1725,6 +1840,7 @@
   }
 
   function renderChartFoot() {
+    if (state.running) return renderFoot();
     if (!bouncedRows().length) return '';
     return `<div class="bz-foot"><button class="bz-btn paper" data-act="chart-card">Save chart</button><div class="bz-hint">A 1200px image of this list, for sharing.</div></div>`;
   }

@@ -279,7 +279,10 @@ const head = (title, desc, extraCss) => `<!doctype html>
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
+<meta property="og:image" content="https://dearcustomer.kanishkdan.com/launch-thumbnail.jpg">
+<meta property="og:image:width" content="1280"><meta property="og:image:height" content="720">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://dearcustomer.kanishkdan.com/launch-thumbnail.jpg">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>${BASE_CSS}${extraCss || ''}</style></head><body>`;
 
@@ -304,8 +307,8 @@ const ACTIONS = [
   ['M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3z|M10 19a2 2 0 0 0 4 0|M4 4l16 16', 'Opt out',
    "WhatsApp's own stop-marketing setting, plus a STOP sent to the business. Two systems, one click."],
   ['M5 21V4|M5 4h12l-2 3.5 2 3.5H5', 'Report',
-   "Sends their message to WhatsApp. Reports lower a number's rating until Meta throttles it."],
-  ['M6 6l12 12|', 'Block', 'That number can never message you again.'],
+   "Reports the selected sender to WhatsApp with message context. WhatsApp decides what action to take."],
+  ['M6 6l12 12|', 'Block', 'Stops messages from that number, including useful updates. Review the sender first.'],
   ['M3 4h18v4H3z|M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8|M10 12h4', 'Archive',
    'Out of your chat list. It comes back if they write again.'],
   ['M4 7h16|M9 7V4h6v3|M6 7l1 13h10l1-13|M10 11v6M14 11v6', 'Delete',
@@ -316,6 +319,7 @@ const actionIcon = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="curr
 async function landingPage(env) {
   REPO = env.REPO_URL || REPO;
   const store = env.STORE_URL || '';
+  const videoId = /^[A-Za-z0-9_-]{11}$/.test(env.YOUTUBE_VIDEO_ID || '') ? env.YOUTUBE_VIDEO_ID : '';
   let totals = { businesses: 0, numbers: 0, people: 0, min: 3 };
   try { totals = await totalsRow(env); } catch (_) {}
   const css = `
@@ -326,6 +330,22 @@ async function landingPage(env) {
   .hero p.lead { font-size:19px; line-height:1.5; color:var(--paper); max-width:33em; margin:24px 0 0; }
   .cta { display:flex; gap:12px; flex-wrap:wrap; margin:30px 0 0; align-items:center; }
   .cta .note { font-size:13px; color:var(--muted); }
+  .launch-film { margin:44px 0 0; }
+  .film-frame { aspect-ratio:16/9; background:var(--surface); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .film-trigger { position:relative; display:block; width:100%; height:100%; border:0; padding:0; background:var(--surface); cursor:pointer; color:var(--paper); }
+  .film-trigger img { display:block; width:100%; height:100%; object-fit:cover; }
+  .film-play { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:grid; place-items:center; width:64px; height:64px; border-radius:50%; background:var(--paper); color:var(--ground); box-shadow:0 2px 20px #0006; }
+  .film-play svg { width:24px; height:24px; margin-left:4px; }
+  .film-trigger:hover .film-play { background:var(--ink); color:white; }
+  .film-trigger:focus-visible { outline:3px solid var(--ok); outline-offset:-4px; }
+  .film-frame iframe { display:block; width:100%; height:100%; border:0; }
+  .launch-film figcaption { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 20px; margin-top:10px; color:var(--muted); font-size:12px; }
+  .launch-film figcaption a { color:var(--muted); text-decoration:underline; text-underline-offset:3px; }
+  .faq { border-top:1px solid var(--line); }
+  .faq details { border-bottom:1px solid var(--line); padding:18px 0; }
+  .faq summary { cursor:pointer; font-size:15px; font-weight:600; }
+  .faq summary:focus-visible { outline:2px solid var(--ok); outline-offset:5px; }
+  .faq p { font-size:14px; line-height:1.65; color:#cfd6da; margin:12px 0 0; max-width:65ch; }
   .thread { margin:52px 0 0; display:grid; gap:9px; }
   .bub { max-width:81%; padding:12px 15px; border-radius:10px 10px 10px 3px; background:var(--surface); border:1px solid var(--line);
     font-size:14.5px; line-height:1.45; color:#cfd6da; }
@@ -352,24 +372,44 @@ async function landingPage(env) {
   `;
   const b = (who, text) => `<div class="bub"><span class="who">${esc(who)}</span>${text}</div>`;
   return new Response(head('Dear Customer — WhatsApp spam, out in one click',
-    'A Chrome extension that finds every business spamming your WhatsApp and opts out, reports, blocks and archives them in one click.', css)
+    'Find promotional senders on WhatsApp Web. Review the businesses, choose your actions, and take back your inbox. Free and open source.', css)
     + topbar('home') + `
 <div class="wrap">
   <div class="hero">
     <div class="kicker">Chrome extension for WhatsApp Web</div>
     <h1>Dear&nbsp;Customer.<br><span class="no">No.</span></h1>
-    <p class="lead">Blocking a WhatsApp spammer does nothing. They own a bag of numbers and next week they are back from a new one. This finds every business that has been messaging you, shows how many numbers each has burned, and throws them all out at once.</p>
+    <p class="lead">Same business. Another number. Another offer you never asked for. Find promotional senders on WhatsApp Web, see the numbers each business has used, and choose who gets bounced.</p>
     <div class="cta">
       ${store ? `<a class="btn" href="${esc(store)}">Add to Chrome</a>` : `<a class="btn" href="${esc(REPO)}">Get it on GitHub</a>`}
       <a class="btn ghost" href="/wall">See the Wall of Shame</a>
-      ${store ? '' : '<span class="note">Chrome Web Store listing in review.</span>'}
+      ${store ? '' : '<span class="note">Chrome Web Store release coming soon.</span>'}
     </div>
-    <div class="thread">
+    ${videoId ? `<figure class="launch-film" id="launch-video">
+      <div class="film-frame">
+        <button class="film-trigger" type="button" data-video-id="${videoId}" aria-label="Play the Dear Customer launch video on YouTube">
+          <img src="/launch-thumbnail.jpg" width="1280" height="720" alt="Dear Customer. No. WhatsApp spam, bounced." decoding="async">
+          <span class="film-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3l15 9-15 9z"/></svg></span>
+        </button>
+      </div>
+      <figcaption><span>An unnecessarily dramatic introduction.</span><a href="https://www.youtube.com/watch?v=${videoId}" target="_blank" rel="noopener noreferrer">Watch on YouTube ↗</a></figcaption>
+    </figure>
+    <script>
+      document.querySelector('.film-trigger').addEventListener('click', function () {
+        const frame = document.createElement('iframe');
+        frame.src = 'https://www.youtube-nocookie.com/embed/' + this.dataset.videoId + '?autoplay=1&rel=0&playsinline=1';
+        frame.title = 'Dear Customer launch video';
+        frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+        frame.allowFullscreen = true;
+        frame.referrerPolicy = 'strict-origin-when-cross-origin';
+        this.replaceWith(frame);
+        frame.focus();
+      }, { once: true });
+    </script>` : `<div class="thread">
       ${b('Finance Buddha', '<b>Dear Customer,</b> an exclusive loan offer has been unlocked for you. Apply now, T&amp;C apply.')}
       ${b('KreditBee', '<b>Dear Customer,</b> your pre-approved credit line of ₹2,00,000 is waiting. Zero fee, lifetime free.')}
       ${b('Finance Buddha', '<b>Dear Customer,</b> an exclusive loan offer has been unlocked for you. Apply now, T&amp;C apply.')}
       <div class="reply"><span class="stamp">Bounced</span><span class="bub me">No.</span></div>
-    </div>
+    </div>`}
     ${totals.businesses ? `<div class="counts">
       <div><b>${totals.businesses}</b><span>on the wall</span></div>
       <div><b>${totals.numbers}</b><span>numbers burned</span></div>
@@ -387,17 +427,30 @@ async function landingPage(env) {
   <section>
     <h2>How it knows what is an ad</h2>
     <div class="points">
-      <div class="point"><i>01</i><div><b>WhatsApp's own label.</b> Every template message carries the category the business declared to Meta: marketing, utility or authentication.</div></div>
-      <div class="point"><i>02</i><div><b>The words, which outrank the label.</b> Businesses in India file ad templates as "utility" to dodge marketing pricing, so a loan pitch labelled utility is still a loan pitch. Order updates, OTPs and bills stay out of the way.</div></div>
-      <div class="point"><i>03</i><div><b>You, always.</b> Nothing is touched until you tick it. Click any row to read the conversation first, and ignore a business to never see it again.</div></div>
+      <div class="point"><i>01</i><div><b>Message labels.</b> Uses marketing, utility and authentication categories when WhatsApp makes them available.</div></div>
+      <div class="point"><i>02</i><div><b>Words and buttons.</b> Looks for promotional language and calls to action. Transactional signals help distinguish order updates, OTPs and bills. These are clues, not a guarantee.</div></div>
+      <div class="point"><i>03</i><div><b>You, always.</b> Nothing is acted on until you press Bounce. Review the conversation first. Untick or ignore businesses whose updates you still need; ignored senders can be restored.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Before you bounce</h2>
+    <div class="faq">
+      <details open><summary>What about bookings, tickets and order updates?</summary>
+        <p>Dear Customer identifies promotional senders; it does not selectively hide individual messages. A business that sends both offers and booking confirmations can appear in the promotional list. Blocking a number stops both kinds of message from that number. If you need its updates, leave the business unticked or choose Ignore.</p>
+        <p>Opt-out and STOP behavior depends on WhatsApp and the business. Some unsubscribe buttons stop all communication. Keeping a business unselected is the safest way to preserve its useful messages.</p>
+      </details>
+      <details><summary>Does this cost spammers money?</summary>
+        <p>Dear Customer makes no promise about a business's marketing budget. It brings together opt-out requests, reporting, blocking and optional public reports of repeat spam. WhatsApp decides how to enforce reports; the Wall makes the pattern visible.</p>
+      </details>
     </div>
   </section>
 
   <section>
     <h2>What it will not do</h2>
     <div class="points">
-      <div class="point"><i>—</i><div><b>Send your chats anywhere.</b> Everything runs in your browser. The only thing that ever leaves is a business name and a hashed number, and only when you press Add to the Wall of Shame.</div></div>
-      <div class="point"><i>—</i><div><b>Message strangers.</b> Its one outbound action is a single STOP reply, inside a conversation that business started, capped and switchable off.</div></div>
+      <div class="point"><i>—</i><div><b>Upload private chats to Dear Customer.</b> Analysis runs in your browser. Choosing Report can send message context to WhatsApp. Wall contributions contain business names and hashed sender numbers; sharing is optional.</div></div>
+      <div class="point"><i>—</i><div><b>Run an outreach campaign.</b> Opt-out requests and STOP replies go to selected existing senders. STOP replies are capped and can be switched off.</div></div>
       <div class="point"><i>—</i><div><b>Name a business on one report.</b> The Wall needs ${totals.min} different people before anyone is listed.</div></div>
     </div>
   </section>
@@ -418,37 +471,48 @@ function privacyPage(env) {
   .muted { color: var(--muted); font-size: 13px; }
 `) + topbar('privacy') + `<div class="wrap">
   <h1>Privacy</h1>
-  <p class="muted">The Chrome extension and this website. Last updated 13 September 2026.</p>
+  <p class="muted">The Chrome extension and this website. Last updated 14 September 2026.</p>
 
   <h2>The short version</h2>
-  <p>Dear Customer runs inside your browser. It reads your WhatsApp Web chats locally to find business senders, and it acts on them locally through WhatsApp Web itself. Nothing about your chats leaves your computer unless you press <b>Add to the Wall of Shame</b>.</p>
+  <p>Dear Customer runs inside your browser. It processes recent WhatsApp Web messages, sender names, phone numbers and chat metadata locally to identify business senders and promotional messages. Message text can include personal communications and sensitive information already present in those chats; it is not uploaded to the Dear Customer service. You choose which senders and actions to run, whether to contribute business names and hashed numbers to the Wall, open an X draft containing aggregate results, or save an image card to share yourself.</p>
+
+  <h2>Actions through WhatsApp</h2>
+  <p>Selected actions use your existing WhatsApp Web session. Opt-out requests and STOP replies are sent through WhatsApp to the selected business. Choosing Report uses WhatsApp's reporting feature and can send the selected sender's message context to WhatsApp. Block, archive and delete requests are also handled by WhatsApp. These actions are separate from contributing to the Wall and are subject to WhatsApp's own privacy policy.</p>
 
   <h2>What the extension stores on your computer</h2>
   <ul>
-    <li>A list of business senders it has seen, with their names and the numbers they used, so it can count how many numbers a business has burned on you across weeks.</li>
+    <li>A list of business and unknown senders it has seen, with their names, phone numbers, chat identifiers and first-seen times, so it can group senders and count how many numbers they have used across weeks.</li>
     <li>A random identifier, generated once, used only so the public list can count one person once.</li>
     <li>A cached copy of the public list.</li>
+    <li>Your action choices, ignored businesses, run history, and automatic Wall contribution preference.</li>
   </ul>
   <p>All of this lives in Chrome's extension storage on your device. Removing the extension deletes it.</p>
 
   <h2>What is sent to this website, and when</h2>
-  <p>Only when you press <b>Add to the Wall of Shame</b>, and only for the businesses you tick:</p>
+  <p>When you press <b>Add to the Wall</b>, or enable automatic contribution after future runs, the extension sends the following for the eligible businesses you select:</p>
   <ul>
     <li>The business name exactly as WhatsApp shows it.</li>
     <li>A SHA-256 hash of the digits of each number that business used. The number itself is never sent.</li>
-    <li>Whether WhatsApp marks it as an official Business Platform account, and a country-code guess.</li>
+    <li>Whether WhatsApp marks it as an official Business Platform account, its promotional-message category, and a country-code guess based on the business sender's number.</li>
     <li>Your random identifier.</li>
   </ul>
-  <p>Not sent, ever: your phone number, your name, your contacts, message content, or which businesses you chose not to report. The extension makes one other request to this site: it downloads the public list about every six hours so it can flag businesses others have reported.</p>
+  <p>Wall contributions do not upload your own account name or phone number, your address book, message content, or businesses you did not choose to contribute. Submitted sender display names are shared as shown in WhatsApp and may identify an individual operating a business. The extension also downloads the public list, cached for six hours, and refreshes it after a contribution.</p>
+
+  <h2>Sharing results</h2>
+  <p><b>Post to X</b> opens X with aggregate results from your run and the Dear Customer website link. It does not include message content, phone numbers, or business names in the draft. You review and publish the post yourself. X receives the draft text when you open it, and its own privacy policy applies.</p>
+  <p><b>Save share card</b> and <b>Save chart</b> create image files locally. They can include business names and counts, but no message content or phone numbers. Dear Customer does not upload these files. You choose where to share them.</p>
 
   <h2>What this website keeps</h2>
-  <p>The reports above, in a database, for as long as the list exists. A business is only named on the public page once three different people have reported it for promotional messages; below that its reports are stored but never published, and the numbers it used are not published either. The public page shows business names and counts. Hashes are published in <code>list.json</code> so the extension can match numbers; they are not reversible into numbers without already knowing the number. Standard server logs with IP addresses are kept briefly for abuse prevention and rate limiting.</p>
+  <p>The reports above, including contribution counts and timestamps, are stored in a database for as long as the list exists. A business is only named on the public page once three different installations have reported it for promotional messages; below that its reports are stored but never published, and the numbers it used are not published either. The public page shows business names and counts. Hashes are published in <code>list.json</code> so the extension can match numbers. Hashing does not guarantee anonymity: someone can hash a candidate phone number and compare it with the published value. Our hosting provider, Cloudflare, processes request metadata, including IP addresses, for delivery, logs, abuse prevention and rate limiting.</p>
+
+  <h2>Limited Use</h2>
+  <p>Dear Customer's use of information received through Chrome extension permissions complies with the Chrome Web Store User Data Policy, including its Limited Use requirements. Data is used only to provide the extension's disclosed spam-management, history and optional sharing features. It is not sold, used for advertising or unrelated profiling, or used to determine creditworthiness or for lending. Transfers occur only as needed for these disclosed features, with the user's choices described above, or when required for security or by law. The developer does not receive or read private message content through the extension.</p>
 
   <h2>Removal</h2>
   <p>If a business is listed and you believe that is wrong, or you run that business, <a href="${esc(repo)}/issues/new?title=Removal%20request">open a removal request</a>. Entries come from users, not from the site operator.</p>
 
   <h2>Third parties</h2>
-  <p>No analytics, no advertising, no trackers. The site runs on Cloudflare. The extension uses <a href="https://github.com/wppconnect-team/wa-js">wa-js</a>, an open-source library, bundled locally. Dear Customer is not affiliated with WhatsApp or Meta.</p>
+  <p>Dear Customer does not add analytics or advertising trackers. The site runs on Cloudflare. Where a launch video is available, its preview image is served by this site. YouTube is contacted only when you choose to play the video or open its link. Playback uses YouTube's privacy-enhanced embedded player; YouTube receives request and playback information and its own privacy policy applies. The extension uses <a href="https://github.com/wppconnect-team/wa-js">wa-js</a>, an open-source library, bundled locally. Dear Customer is not affiliated with WhatsApp or Meta.</p>
 
   <h2>Contact</h2>
   <p>Questions go to the <a href="${esc(repo)}/issues">issue tracker</a>.</p>
