@@ -162,5 +162,5 @@ const screenshot = (page,name)=>page.screenshot({path:path.join(OUT, name+'.png'
     await screenshot(page,'09-compact');
     assert.deepEqual(errors,[]);assert.deepEqual(requests,[]);
     console.log(JSON.stringify({ok:true,checks:['setup','no delete','debug handle has no run','Wall choice in setup','restore all','ignore selection guard','row expansion','stable progress DOM','stable scroll','results reset scroll','X draft','PNG download','unblock','Wall payload','partial','failure','cancel','compact'],screenshots:OUT,networkRequests:requests.length,pageErrors:errors.length},null,2));
-  } finally {await context.close();await browser.close();}
+  } catch(e){console.error('page errors so far:',JSON.stringify(errors,null,1));throw e;} finally {await context.close();await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

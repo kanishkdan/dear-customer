@@ -7,13 +7,13 @@ const path = require('node:path');
 function harness() {
   let clock = Date.now();
   class Clock extends Date { static now() { return clock; } }
-  const calls = [], messages = [], cardText = [], opened = [], listeners = [], buttons = {};
+  const calls = [], messages = [], cardText = [], opened = [], listeners = [], buttons = {}, bodies = {};
   const ctx = new Proxy({}, { get: (_, key) => key === 'measureText' ? () => ({ width: 100 }) : key === 'fillText' ? (text, x, y) => cardText.push({ text, x, y }) : () => {} });
   const WPP = { isInjected: true, isReady: true, isFullReady: true, conn: { isAuthenticated: () => true },
     blocklist: { blockContact: async (id) => calls.push(['block', id]) },
     chat: { archive: async (id) => calls.push(['archive', id]), delete: async (id) => calls.push(['delete', id]),
       get: async (id) => { const t = Math.floor(clock / 1000) - 60;
-        const msgs = [{ id: { _serialized: `${id}-m`, fromMe: false }, type: buttons[id] ? 'hsm' : 'chat', body: 'Sale', t, ...(buttons[id] ? { hydratedButtons: buttons[id] } : {}) }];
+        const msgs = [{ id: { _serialized: `${id}-m`, fromMe: false }, type: buttons[id] ? 'hsm' : 'chat', body: bodies[id] || 'Sale', t, ...(buttons[id] ? { hydratedButtons: buttons[id] } : {}) }];
         return { id: { _serialized: id }, contact: { id }, msgs: { toArray: () => msgs, getModelsArray: () => msgs } }; },
       replyToButtonMessage: async (id, msgId, o) => calls.push(['tap', id, o.buttonIndex]),
       sendTextMessage: async (id, text) => calls.push(['text', id, text]) },
@@ -39,7 +39,7 @@ function harness() {
   const gate = (mode) => { sandbox.window.require = mode === 'none' ? undefined : (n) => (n === 'WAWebMarketingMessagesUserFeedbackGatingUtils' ? { isMMOptOutEnabled: () => mode === true }
     : n === 'WAWebOptOutBizAction' ? { optOutContact: async (c) => calls.push(['optout', c.id]) } : null); };
   const send = (type, payload) => listeners.forEach((fn) => fn({ source: sandbox.window, data: { __bouncer: true, dir: 'to-page', type, payload } }));
-  return { ...api, WPP, calls, messages, cardText, opened, buttons, gate, send, sandbox,
+  return { ...api, WPP, calls, messages, cardText, opened, buttons, bodies, gate, send, sandbox,
     click: (act, key, v) => api.onClick({ target: { closest: () => ({ dataset: { act, key, v } }) } }) };
 }
 function group(name, count = 1) {
@@ -224,4 +224,13 @@ test('the list shows the promotional message, promo/update counts and what a bou
   assert.match(html, /Flat 30% off at District/); assert.doesNotMatch(html, /payment of 1,517/);
   assert.match(html, /2 promos · 2 updates/); assert.match(html, /Updates kept/);
   assert.match(html, /Bounce: 1 blocked · 1 opt-out only · <span class="ok">1 kept for updates<\/span>/);
+});
+test("the business's own unsubscribe keyword is used instead of STOP, and a promotions-only one is allowed for a number that also sends updates", async () => {
+  const h = harness(); h.gate(true); h.state.actions = { optout: true, stop: true };
+  const a = group('Scapia'); a.numbers[0].cls = 'mixed'; h.bodies[a.numbers[0].id] = "Refer 6 friends to win a voucher. Reply 'UNSUB' to unsubscribe from promotional notifications";
+  const b = group('Shop'); b.numbers[0].cls = 'promo'; h.bodies[b.numbers[0].id] = 'Weekend sale! Send END to unsubscribe.';
+  const c = group('Bank'); c.numbers[0].cls = 'mixed'; h.bodies[c.numbers[0].id] = 'Offers inside. Reply STOP to stop receiving messages';
+  h.state.groups = [a, b, c]; await h.run();
+  assert.deepEqual(h.calls.filter((x) => x[0] === 'text').map((x) => [x[1], x[2]]), [[a.numbers[0].id, 'UNSUB'], [b.numbers[0].id, 'END']]);
+  assert.equal(c.numbers[0].result.stop, 'skipped'); assert.match(h.renderResultTags(c.numbers[0]), /promotions-only/);
 });

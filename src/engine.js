@@ -586,18 +586,20 @@
         // template from WhatsApp does.
         const saved = f.isMyContact === true && !f.isEnterprise && !f.verifiedName;
         if (saved) cats['promo-guess'] = 0;
-        // The row shows the message that put the business on the list, not whatever came last.
-        const promoMsg = saved ? marketingLast : promoLast;
         // What this number sends you across every loaded message, not just this period.
         // It decides which actions are safe for the number during a run.
         let sendsPromo = cats.marketing > 0 || cats['promo-guess'] > 0 || !!f.marketingThread;
         let sendsUpdates = false;
+        let promoAnyLast = null;
         for (const m of inboundAll) {
           const c = msgCategory(m);
-          if (c === 'marketing' || (c === 'promo-guess' && !saved)) sendsPromo = true;
+          if (c === 'marketing' || (c === 'promo-guess' && !saved)) { sendsPromo = true; if (newer(m, promoAnyLast)) promoAnyLast = m; }
           if (c === 'utility' || c === 'auth') sendsUpdates = true;
         }
         const cls = sendsPromo && sendsUpdates ? 'mixed' : sendsUpdates ? 'updates' : sendsPromo ? 'promo' : 'none';
+        // The row shows the message that put the business on the list, not whatever came
+        // last: the newest promo in the period, else the newest promo among what is loaded.
+        const promoMsg = (saved ? marketingLast : promoLast) || promoAnyLast;
         let isBiz = bizByContact || bizByMsg;
         const unknown = !isBiz && inWindow && inbound.length > 0 && f.isMyContact === false && !f.isPSA;
         if (!isBiz && !unknown) continue;
@@ -643,6 +645,8 @@
           ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow, lastMsgId,
           msgs: inbound.length, preview: pv.text, previewSys: pv.sys,
           promoPreview: promoMsg ? previewOf(promoMsg).text : '',
+          promoFlagOnly: !promoMsg && !!f.marketingThread,
+          unsub: unsubInstruction(inboundAll.slice(-40)),
           promoMsgs: cats.marketing + cats['promo-guess'], updateMsgs: cats.utility + cats.auth,
         });
       }
@@ -680,7 +684,8 @@
       const pr = g.active.find((n) => n.preview) || {};
       g.preview = pr.preview || '';
       g.previewSys = !!pr.previewSys;
-      g.promoPreview = (g.active.find((n) => n.promoPreview) || {}).promoPreview || '';
+      g.promoPreview = (g.active.find((n) => n.promoPreview) || g.numbers.find((n) => n.promoPreview) || {}).promoPreview || '';
+      g.promoFlagOnly = !g.promoPreview && g.numbers.some((n) => n.promoFlagOnly);
       g.promoMsgs = g.active.reduce((c, n) => c + (n.promoMsgs || 0), 0);
       g.updateMsgs = g.active.reduce((c, n) => c + (n.updateMsgs || 0), 0);
       g.known = (g.numbers.find((n) => n.known) || {}).known || null;
@@ -838,6 +843,22 @@
   function chatModels(chat) {
     try { return (chat.msgs.toArray ? chat.msgs.toArray() : chat.msgs.getModelsArray()).slice(); } catch (_) { return []; }
   }
+  // "Reply 'UNSUB' to unsubscribe from promotional notifications": the business's own
+  // instruction beats a guessed STOP. When it says promotional, marketing or offers, the
+  // business itself declares it promotions-only, so it is safe for a number that also
+  // sends you updates.
+  const UNSUB_RE = /\b(?:reply|send|text|type)\s+(?:with\s+|back\s+)?['"\u2018\u2019\u201c\u201d]?([A-Za-z]{2,12})['"\u2018\u2019\u201c\u201d]?\s+to\s+(?:unsubscribe|opt[\s-]?out|stop)\b([^.\n]{0,80})/i;
+  const NOT_WORDS = new Set(['TO', 'THE', 'THIS', 'YES', 'NO', 'OK', 'US', 'ME', 'HERE', 'BACK', 'NOW', 'IT']);
+  function unsubInstruction(models) {
+    for (const m of models.slice().reverse()) {
+      if (!m || m.id?.fromMe || attrOf(m, 'fromMe')) continue;
+      const x = UNSUB_RE.exec(textOf(m) || ''); if (!x) continue;
+      const word = x[1].toUpperCase();
+      if (NOT_WORDS.has(word)) continue;
+      return { word, promoOnly: /promo|marketing|offer|advert|campaign|deal/i.test(x[2] || '') };
+    }
+    return null;
+  }
   function bestOptOutButton(models, minTs, minScore, promoOnly = false) {
     let best = null;
     for (const m of models.slice().reverse()) {
@@ -859,8 +880,11 @@
     return best;
   }
   async function hasPromoOnlyButton(id) {
-    try { const chat = await window.WPP.chat.get(id); return !!(chat && bestOptOutButton(chatModels(chat).slice(-25), 0, 2, true)); }
-    catch (_) { return false; }
+    try {
+      const chat = await window.WPP.chat.get(id); if (!chat) return false;
+      const models = chatModels(chat);
+      return !!(bestOptOutButton(models.slice(-25), 0, 2, true) || (unsubInstruction(models.slice(-40)) || {}).promoOnly);
+    } catch (_) { return false; }
   }
   async function sendStop(id, { promoOnly = false } = {}) {
     const W = window.WPP;
@@ -874,10 +898,14 @@
       catch (e) { log('button tap failed', String((e && e.message) || e)); }
     }
     if (!how) {
-      // A typed STOP can unsubscribe from everything, so never for a number that also sends updates.
-      if (promoOnly) throw new Error('no promotions-only button');
-      await W.chat.sendTextMessage(id, STOP_TEXT, { waitForAck: false, linkPreview: false, markIsRead: true });
-      how = 'typed STOP';
+      // The business's own keyword when it gave one. A typed word can unsubscribe from
+      // everything, so for a number that also sends updates only a keyword the business
+      // itself scoped to promotions is sent.
+      const ins = unsubInstruction(chatModels(chat).slice(-40));
+      if (promoOnly && !(ins && ins.promoOnly)) throw new Error('no promotions-only button or instruction');
+      const word = ins ? ins.word : STOP_TEXT;
+      await W.chat.sendTextMessage(id, word, { waitForAck: false, linkPreview: false, markIsRead: true });
+      how = `typed ${word}`;
     }
     // A bot may answer with a menu. Take its strongest allowed opt-out, or a plain
     // confirmation, but never a generic confirmation for a number that sends updates.
@@ -993,7 +1021,7 @@
         if (!state.cancel && n.result.stop === 'pending' && n.id === g.stopId) {
           const promoOnly = n.plan === 'marketing';
           if (stopsSent >= STOP_CAP) skip('stop', 'The daily STOP limit was reached. Other actions still ran.');
-          else if (promoOnly && !(await hasPromoOnlyButton(n.id))) skip('stop', 'This number also sends you updates and has no promotions-only unsubscribe button, so no STOP was sent.');
+          else if (promoOnly && !(await hasPromoOnlyButton(n.id))) skip('stop', 'This number also sends you updates and offers no promotions-only unsubscribe (button or "reply X to unsubscribe from promotions"), so nothing was typed.');
           else {
             const ok = await act('stop', 'Sending STOP', () => sendStop(n.id, { promoOnly }), 20000);
             if (ok) stopsSent++;
@@ -1873,7 +1901,7 @@
     const last = g.numbers[0];
     const isActive = state.running && g.numbers.some((n) => n.id === state.activeId);
     const mixedCounts = g.promo && g.updateMsgs > 0 && g.promoMsgs > 0;
-    const preview = g.promo && g.promoPreview ? g.promoPreview : g.preview;
+    const preview = g.promo && g.promoPreview ? g.promoPreview : g.promo && g.promoFlagOnly && g.preview ? `WhatsApp flags this sender as marketing. Latest: ${g.preview}` : g.preview;
     const previewSys = g.promo && g.promoPreview ? false : g.previewSys;
     const meta = [
       mixedCounts ? `${plural(g.promoMsgs, 'promo')} · ${plural(g.updateMsgs, 'update')}` : plural(g.msgs, 'message'),
@@ -1902,12 +1930,14 @@
   function bouncePlan(g) {
     const c = { promo: 0, mixed: 0, updates: 0 };
     for (const n of g.numbers) c[n.cls === 'mixed' || n.cls === 'updates' ? n.cls : 'promo']++;
-    if (g.numbers.length === 1) return c.mixed ? 'Bounce: opt-out only, updates keep coming' : c.updates ? 'Bounce: left alone' : '';
+    const word = (g.numbers.find((n) => n.cls === 'mixed' && n.unsub && n.unsub.promoOnly) || {}).unsub;
+    if (g.numbers.length === 1) return c.mixed ? `Bounce: opt-out${word ? ` + reply ${word.word}` : ''} only, updates keep coming` : c.updates ? 'Bounce: left alone' : '';
     return 'Bounce: ' + [c.promo ? `${c.promo} blocked` : '', c.mixed ? `${c.mixed} opt-out only` : '', c.updates ? `<span class="ok">${c.updates} kept for updates</span>` : ''].filter(Boolean).join(' · ');
   }
   function renderNums(g) {
     return `<div class="bz-nums">${g.numbers.map((n) => {
-      const [sends, plan] = KIND[n.cls] || KIND.none;
+      let [sends, plan] = KIND[n.cls] || KIND.none;
+      if (n.cls === 'mixed' && n.unsub && n.unsub.promoOnly) plan = `opt-out + reply ${n.unsub.word}`;
       const before = !n.result && !state.running && g.promo ? `${sends ? ` · ${sends}` : ''} · ${plan}` : '';
       return `
       <div class="bz-num"><span>${esc(fmtPhone(n.phone))}</span><span class="when">${esc(fmtAgo(n.ts))}${n.blocked && !n.result ? ' · blocked' : ''}${before}</span><span class="st">${renderResultTags(n)}</span></div>`; }).join('')}</div>`;
