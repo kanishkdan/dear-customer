@@ -573,15 +573,21 @@
 
         let bizByMsg = false, msgName = null;
         const cats = { marketing: 0, utility: 0, auth: 0, 'promo-guess': 0 };
+        let promoLast = null, marketingLast = null;
+        const newer = (m, than) => !than || (attrOf(m, 't') || 0) >= (attrOf(than, 't') || 0);
         for (const m of inbound) {
           const sg = msgSignals(m); if (sg.biz) { bizByMsg = true; msgName = msgName || sg.name; }
           const c = msgCategory(m); if (c) cats[c]++;
+          if (c === 'marketing' && newer(m, marketingLast)) marketingLast = m;
+          if ((c === 'marketing' || c === 'promo-guess') && newer(m, promoLast)) promoLast = m;
         }
         // Someone saved in your contacts who uses the WhatsApp Business app is a person you
         // know. Their plain messages never count as promotions; only a real marketing
         // template from WhatsApp does.
         const saved = f.isMyContact === true && !f.isEnterprise && !f.verifiedName;
         if (saved) cats['promo-guess'] = 0;
+        // The row shows the message that put the business on the list, not whatever came last.
+        const promoMsg = saved ? marketingLast : promoLast;
         // What this number sends you across every loaded message, not just this period.
         // It decides which actions are safe for the number during a run.
         let sendsPromo = cats.marketing > 0 || cats['promo-guess'] > 0 || !!f.marketingThread;
@@ -636,6 +642,8 @@
           known: known ? { name: known.name, people: known.promo_people != null ? known.promo_people : known.people, numbers: known.numbers } : null,
           ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow, lastMsgId,
           msgs: inbound.length, preview: pv.text, previewSys: pv.sys,
+          promoPreview: promoMsg ? previewOf(promoMsg).text : '',
+          promoMsgs: cats.marketing + cats['promo-guess'], updateMsgs: cats.utility + cats.auth,
         });
       }
       state.scanStats = stats;
@@ -672,6 +680,9 @@
       const pr = g.active.find((n) => n.preview) || {};
       g.preview = pr.preview || '';
       g.previewSys = !!pr.previewSys;
+      g.promoPreview = (g.active.find((n) => n.promoPreview) || {}).promoPreview || '';
+      g.promoMsgs = g.active.reduce((c, n) => c + (n.promoMsgs || 0), 0);
+      g.updateMsgs = g.active.reduce((c, n) => c + (n.updateMsgs || 0), 0);
       g.known = (g.numbers.find((n) => n.known) || {}).known || null;
       const order = ['promo', 'guess', 'txn', 'api', 'smb', 'unknown'];
       g.category = g.numbers.map((n) => n.category).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0] || 'unknown';
@@ -1275,6 +1286,8 @@
   #bouncer-root .bz-msg { color: #cfd6da; font-size: 12.5px; line-height: 1.4; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #bouncer-root .bz-msg.sys { color: var(--muted); font-style: italic; }
   #bouncer-root .bz-meta { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bouncer-root .bz-plan { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  #bouncer-root .bz-plan .ok, #bouncer-root .bz-lab.ok { color: var(--ok); }
   #bouncer-root .bz-meta button { color: var(--muted); }
   #bouncer-root .bz-meta button:hover { color: var(--paper); }
   #bouncer-root .bz-tally { text-align: right; padding-top: 2px; }
@@ -1849,7 +1862,7 @@
       g.known ? `<span class="bz-lab warn">On the Wall · ${g.known.people}</span>` : '',
       showCat && catText && !(g.known && catCls === 'hot') ? `<span class="bz-lab ${catCls}">${catText}</span>` : '',
       g.saved ? '<span class="bz-lab">In your contacts</span>' : '',
-      g.sendsUpdates && g.promo && !g.done ? '<span class="bz-lab" title="Numbers that also send you orders, bookings or OTPs only get the marketing opt-out. Numbers that only send updates are left alone.">Also sends updates</span>' : '',
+      g.sendsUpdates && g.promo && !g.done ? '<span class="bz-lab ok" title="Numbers that also send you orders, bookings or OTPs only get the marketing opt-out. Numbers that only send updates are left alone.">Updates kept</span>' : '',
       g.optedOut ? '<span class="bz-lab">Opted out</span>' : '',
       allBlocked && !g.done ? '<span class="bz-lab">Blocked</span>' : '',
     ].join('');
@@ -1859,8 +1872,11 @@
     const o = locked ? outcome(g) : null;
     const last = g.numbers[0];
     const isActive = state.running && g.numbers.some((n) => n.id === state.activeId);
+    const mixedCounts = g.promo && g.updateMsgs > 0 && g.promoMsgs > 0;
+    const preview = g.promo && g.promoPreview ? g.promoPreview : g.preview;
+    const previewSys = g.promo && g.promoPreview ? false : g.previewSys;
     const meta = [
-      plural(g.msgs, 'message'),
+      mixedCounts ? `${plural(g.promoMsgs, 'promo')} · ${plural(g.updateMsgs, 'update')}` : plural(g.msgs, 'message'),
       esc(fmtAgo(last.ts)),
       single ? esc(fmtPhone(last.phone)) : (!locked ? `<button data-act="expand-row" data-key="${esc(g.key)}" aria-expanded="${!!g.expanded}">${g.expanded ? 'Hide numbers' : `${plural(g.numbers.length, 'number')} ›`}</button>` : plural(g.numbers.length, 'number')),
       !locked ? `<button class="bz-ignore" data-act="ignore" data-key="${esc(g.key)}" title="Never show ${esc(g.name)} again">Ignore</button>` : '',
@@ -1871,8 +1887,9 @@
         <span class="bz-rank">${rank ? String(rank).padStart(2, '0') : ''}</span>
         <div class="bz-main">
           <div class="bz-row1"><span class="bz-name">${esc(g.name)}</span>${labels}</div>
-          ${g.preview && !g.done ? `<div class="bz-msg ${g.previewSys ? 'sys' : ''}">${esc(g.preview)}</div>` : ''}
+          ${preview && !g.done ? `<div class="bz-msg ${previewSys ? 'sys' : ''}">${esc(preview)}</div>` : ''}
           <div class="bz-meta">${g.done ? plural(g.numbers.length, 'number') : meta}</div>
+          ${!locked && g.promo && g.sendsUpdates ? `<div class="bz-plan">${bouncePlan(g)}</div>` : ''}
           ${locked ? `<div class="bz-row-status" role="status">${renderGroupStatus(g)}</div><button class="bz-detail-toggle bz-link muted" data-act="expand-row" data-key="${esc(g.key)}" aria-expanded="${!!g.expanded}">${g.expanded ? 'Hide details' : 'Details'}</button>` : ''}
         </div>
         ${seen >= 2 ? `<div class="bz-tally"><b>${seen}</b><small>numbers<br>burned</small></div>` : '<span></span>'}
@@ -1880,9 +1897,20 @@
       </div>`;
   }
 
+  // What a bounce does to this business, number by number, before anything runs.
+  const KIND = { promo: ['promotions', 'blocked'], mixed: ['promotions and updates', 'opt-out only'], updates: ['updates only', 'left alone'], none: ['', 'blocked'] };
+  function bouncePlan(g) {
+    const c = { promo: 0, mixed: 0, updates: 0 };
+    for (const n of g.numbers) c[n.cls === 'mixed' || n.cls === 'updates' ? n.cls : 'promo']++;
+    if (g.numbers.length === 1) return c.mixed ? 'Bounce: opt-out only, updates keep coming' : c.updates ? 'Bounce: left alone' : '';
+    return 'Bounce: ' + [c.promo ? `${c.promo} blocked` : '', c.mixed ? `${c.mixed} opt-out only` : '', c.updates ? `<span class="ok">${c.updates} kept for updates</span>` : ''].filter(Boolean).join(' · ');
+  }
   function renderNums(g) {
-    return `<div class="bz-nums">${g.numbers.map((n) => `
-      <div class="bz-num"><span>${esc(fmtPhone(n.phone))}</span><span class="when">${esc(fmtAgo(n.ts))}${n.blocked && !n.result ? ' · blocked' : ''}</span><span class="st">${renderResultTags(n)}</span></div>`).join('')}</div>`;
+    return `<div class="bz-nums">${g.numbers.map((n) => {
+      const [sends, plan] = KIND[n.cls] || KIND.none;
+      const before = !n.result && !state.running && g.promo ? `${sends ? ` · ${sends}` : ''} · ${plan}` : '';
+      return `
+      <div class="bz-num"><span>${esc(fmtPhone(n.phone))}</span><span class="when">${esc(fmtAgo(n.ts))}${n.blocked && !n.result ? ' · blocked' : ''}${before}</span><span class="st">${renderResultTags(n)}</span></div>`; }).join('')}</div>`;
   }
 
   function renderResultTags(n) {

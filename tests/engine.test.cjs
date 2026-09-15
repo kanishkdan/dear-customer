@@ -214,3 +214,14 @@ test('Wall contribution is on for new installs and kept as stored for existing o
   h.send('history', { onboarded: true, autoReport: false, seen: {}, runs: [], ignored: {} }); assert.equal(h.state.history.autoReport, false);
   h.send('history', { onboarded: true, autoReport: true, seen: {}, runs: [], ignored: {} }); assert.equal(h.state.history.autoReport, true);
 });
+test('the list shows the promotional message, promo/update counts and what a bounce will do', () => {
+  const h = harness(); const g = group('District', 3);
+  for (const n of g.numbers) { n.kind = 'biz'; n.name = 'District'; n.category = 'promo'; }
+  g.numbers[0].cls = 'mixed'; g.numbers[0].preview = 'Your payment of 1,517 has been received.'; g.numbers[0].promoPreview = 'Flat 30% off at District. Book now'; g.numbers[0].promoMsgs = 1; g.numbers[0].updateMsgs = 1;
+  g.numbers[1].cls = 'updates'; g.numbers[1].updateMsgs = 1; g.numbers[2].cls = 'promo'; g.numbers[2].promoMsgs = 1;
+  const grouped = h.groupRows(g.numbers)[0]; grouped.checked = true; h.state.groups = [grouped];
+  const html = h.renderList();
+  assert.match(html, /Flat 30% off at District/); assert.doesNotMatch(html, /payment of 1,517/);
+  assert.match(html, /2 promos · 2 updates/); assert.match(html, /Updates kept/);
+  assert.match(html, /Bounce: 1 blocked · 1 opt-out only · <span class="ok">1 kept for updates<\/span>/);
+});

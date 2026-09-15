@@ -9,6 +9,7 @@ Replacement video: https://www.youtube.com/watch?v=OnTBwxdliI0. YouTube reports 
 ## 1.0.4 (in progress, do not upload while 1.0.3 is in review)
 
 - Results screen: each business's status line now says what happened per kind of number ("1 bounced · 1 opted out of marketing only · 1 left alone, sends you updates"; a single mixed sender reads "Marketing opt-out only, updates keep coming"). The pre-run "Also sends updates" label explains itself on hover.
+- List view: a business on the Promotional tab now previews the promotional message that put it there, not whatever arrived last (a receipt, an alert). Rows that mix promos and updates show "2 promos · 2 updates", a green "Updates kept" label, and a plan line: "Bounce: 1 blocked · 1 opt-out only · 1 kept for updates" (single mixed number: "Bounce: opt-out only, updates keep coming"). Expanded numbers say what each sends and what will happen to it.
 - Built as `dist/dear-customer-1.0.4.zip`. Upload once 1.0.3 is approved.
 
 ## 1.0.3 safety release (14 September 2026)
