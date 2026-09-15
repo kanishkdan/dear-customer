@@ -1285,7 +1285,7 @@
   #bouncer-root .bz-lab.warn { color: #f5a623; }
   #bouncer-root .bz-msg { color: #cfd6da; font-size: 12.5px; line-height: 1.4; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #bouncer-root .bz-msg.sys { color: var(--muted); font-style: italic; }
-  #bouncer-root .bz-meta { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bouncer-root .bz-meta { color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.5; }
   #bouncer-root .bz-plan { color: var(--muted); font-size: 12px; margin-top: 3px; }
   #bouncer-root .bz-plan .ok, #bouncer-root .bz-lab.ok { color: var(--ok); }
   #bouncer-root .bz-meta button { color: var(--muted); }
