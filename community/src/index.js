@@ -26,6 +26,11 @@ const HASH_RE = /^[0-9a-f]{64}$/i;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // The old name. Everything moves to dearcustomer.kanishkdan.com, path and query intact.
+    // 308 keeps the method, so an old client's POST /report still lands.
+    if (url.hostname === 'bouncer.kanishkdan.com') {
+      return Response.redirect(`${env.SITE_URL || 'https://dearcustomer.kanishkdan.com'}${url.pathname}${url.search}`, 308);
+    }
     try {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
       if (url.pathname === '/report' && request.method === 'POST') return await report(request, env, ctx);
