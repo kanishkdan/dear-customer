@@ -234,5 +234,6 @@ test("the business's own unsubscribe keyword is used instead of STOP, and a prom
   const c = group('Bank'); c.numbers[0].cls = 'mixed'; h.bodies[c.numbers[0].id] = 'Offers inside. Reply STOP to stop receiving messages';
   h.state.groups = [a, b, c]; await h.run();
   assert.deepEqual(h.calls.filter((x) => x[0] === 'text').map((x) => [x[1], x[2]]), [[a.numbers[0].id, 'UNSUB'], [b.numbers[0].id, 'END']]);
-  assert.equal(c.numbers[0].result.stop, 'skipped'); assert.match(h.renderResultTags(c.numbers[0]), /promotions-only/);
+  // A generic "reply STOP" is never sent to a number that also sends updates, and nothing is planned for it.
+  assert.equal(c.numbers[0].result.stop, undefined); assert.equal(h.outcome(c).key, 'complete');
 });
