@@ -6,14 +6,14 @@ On 14 September 2026, the landing page was deployed with the live Add to Chrome 
 
 Replacement video: https://www.youtube.com/watch?v=OnTBwxdliI0. YouTube reports it playable with embedding allowed, and the live landing page uses this ID in its click-to-load player. The prior store video QauQmaZ6SiQ has been removed by its uploader. The store dashboard displayed a review-submission confirmation; the submitted video's URL has not been verified. The user is handling browser steps. GitHub publication of these local changes and a real WhatsApp acceptance run remain unverified.
 
-## 1.0.4 (in progress, do not upload while 1.0.3 is in review)
+## 1.0.5 (the store already holds an earlier 1.0.4 build; this supersedes it)
 
 - Results screen: each business's status line now says what happened per kind of number ("1 bounced · 1 opted out of marketing only · 1 left alone, sends you updates"; a single mixed sender reads "Marketing opt-out only, updates keep coming"). The pre-run "Also sends updates" label explains itself on hover.
 - List view: a business on the Promotional tab now previews the promotional message that put it there, not whatever arrived last (a receipt, an alert). Rows that mix promos and updates show "2 promos · 2 updates", a green "Updates kept" label, and a plan line: "Bounce: 1 blocked · 1 opt-out only · 1 kept for updates" (single mixed number: "Bounce: opt-out only, updates keep coming"). Expanded numbers say what each sends and what will happen to it.
 - STOP step reads the business's own instruction ("Reply 'UNSUB' to unsubscribe from promotional notifications") and types that keyword instead of a guessed STOP. When the instruction is scoped to promotions/marketing/offers, it is also sent for a number that mixes promos and updates (which otherwise gets the opt-out only); a generic "reply STOP to stop receiving messages" is never sent to a mixed number.
 - Preview falls back to the newest promo among everything loaded when the period holds only updates; a business listed only because WhatsApp flags the thread as marketing says so in its preview.
 - WhatsApp's own opt-out is only planned for senders WhatsApp itself tagged as marketing (marketing template or marketing-thread flag). For a keyword-guessed promo sender it shows "Not offered" with the reason, and a server "not-acceptable" answer is also "Not offered". Neither counts as a failure, so a business no longer reads "Partly completed" because of it. A mixed number with no promotions-only way out gets no STOP planned (nothing "skipped").
-- Built as `dist/dear-customer-1.0.4.zip`. Upload once 1.0.3 is approved.
+- Built as `dist/dear-customer-1.0.5.zip`.
 
 ## 1.0.3 safety release (14 September 2026)
 

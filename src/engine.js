@@ -15,7 +15,7 @@
   if (window.__bouncerLoaded) return;
   window.__bouncerLoaded = true;
 
-  const VERSION = '1.0.4';
+  const VERSION = '1.0.5';
   const SITE_URL = 'https://dearcustomer.kanishkdan.com';
   const LOGO = '<svg class="bz-logo" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="#1c1c1e"/><path d="M192 300a96 96 0 0 1 96-96h448a96 96 0 0 1 96 96v260a96 96 0 0 1-96 96H424L300 820V656h-12a96 96 0 0 1-96-96z" fill="#fff"/><rect x="262" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="566" y="372" width="196" height="132" rx="48" fill="#1c1c1e"/><rect x="452" y="418" width="120" height="34" rx="17" fill="#1c1c1e"/></svg>';
   const STOP_TEXT = 'STOP';
