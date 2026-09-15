@@ -982,9 +982,15 @@
         }
       }
       if (A.stop) {
-        const eligible = g.numbers.filter((n) => n.plan === 'full' || n.plan === 'marketing');
-        const recent = eligible.find((n) => !n.blocked && n.ts >= nowSec() - 30 * 86400);
-        if (recent) { g.stopId = recent.id; recent.result.stop = 'pending'; }
+        // One STOP per business, to its most recent live number. A number that also sends
+        // updates only qualifies when the business offers a promotions-only way out; if it
+        // doesn't, nothing is planned for it, so nothing shows up as skipped.
+        for (const n of g.numbers) {
+          if (n.plan !== 'full' && n.plan !== 'marketing') continue;
+          if (n.blocked || n.ts < nowSec() - 30 * 86400) continue;
+          if (n.plan === 'marketing' && !(await hasPromoOnlyButton(n.id))) continue;
+          g.stopId = n.id; n.result.stop = 'pending'; break;
+        }
       }
       for (const n of g.numbers) {
         if (n.plan === 'keep' || resultKeys.some((k) => n.result[k] !== undefined)) continue;

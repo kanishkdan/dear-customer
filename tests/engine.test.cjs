@@ -165,7 +165,9 @@ test('no STOP for a sender that also sends updates unless it offers a promotions
   h.buttons[m.numbers[0].id] = [{ index: 0, quickReplyButton: { displayText: 'Unsubscribe' } }];
   h.state.groups = [m]; await h.run();
   assert.deepEqual(h.calls.map((c) => c[0]), ['optout']);
-  assert.equal(m.numbers[0].result.stop, 'skipped'); assert.match(h.renderResultTags(m.numbers[0]), /promotions-only/);
+  // Nothing was planned, so nothing is "skipped" and the business is not "partly completed".
+  assert.equal(m.numbers[0].result.stop, undefined); assert.equal(h.outcome(m).key, 'complete');
+  assert.match(h.renderResultTags(m.numbers[0]), /only marketing opt-outs ran/);
 });
 test('people saved in your contacts are never pre-ticked, while plain-text spam from strangers is still caught', () => {
   const h = harness(); const now = Math.floor(Date.now() / 1000);
