@@ -484,7 +484,7 @@
     updateRunUI();
     try {
       const r = await withTimeout(Promise.resolve().then(fn), ms, label);
-      if (n.result[key] !== 'already') n.result[key] = true;
+      if (n.result[key] !== 'already' && n.result[key] !== 'na') n.result[key] = true;
       log(label, 'ok', `${Date.now() - started}ms`, n.id, r === undefined ? '' : r);
       return true;
     } catch (e) {
@@ -590,9 +590,10 @@
         // It decides which actions are safe for the number during a run.
         let sendsPromo = cats.marketing > 0 || cats['promo-guess'] > 0 || !!f.marketingThread;
         let sendsUpdates = false;
-        let promoAnyLast = null;
+        let promoAnyLast = null, metaMarketing = !!f.marketingThread;
         for (const m of inboundAll) {
           const c = msgCategory(m);
+          if (c === 'marketing') metaMarketing = true;
           if (c === 'marketing' || (c === 'promo-guess' && !saved)) { sendsPromo = true; if (newer(m, promoAnyLast)) promoAnyLast = m; }
           if (c === 'utility' || c === 'auth') sendsUpdates = true;
         }
@@ -645,7 +646,7 @@
           ts: realTs, blocked, archived: !!attrOf(chat, 'archive'), inWindow, lastMsgId,
           msgs: inbound.length, preview: pv.text, previewSys: pv.sys,
           promoPreview: promoMsg ? previewOf(promoMsg).text : '',
-          promoFlagOnly: !promoMsg && !!f.marketingThread,
+          promoFlagOnly: !promoMsg && !!f.marketingThread, metaMarketing,
           unsub: unsubInstruction(inboundAll.slice(-40)),
           promoMsgs: cats.marketing + cats['promo-guess'], updateMsgs: cats.utility + cats.auth,
         });
@@ -821,7 +822,10 @@
     if (!contact) contact = await W.contact.get(id);
     if (!contact) throw new Error('contact not found');
     if (attrOf(contact, 'isContactOptedOut')) return 'already';
-    await mod.optOutContact(contact, 'marketing_messages', 'profile_view');
+    // WhatsApp answers not-acceptable when it has no marketing relationship on file for
+    // this sender. Nothing to opt out of, so it is reported as not offered, not failed.
+    try { await mod.optOutContact(contact, 'marketing_messages', 'profile_view'); }
+    catch (e) { if (/not.acceptable|406/i.test(String((e && e.message) || e))) return 'na'; throw e; }
     return 'ok';
   }
 
@@ -925,7 +929,7 @@
   const numberSucceeded = (n) => !!n.result && resultKeys.some((k) => actionSucceeded(n.result[k]));
   const resultKeys = ['optout', 'stop', 'report', 'block', 'archive'];
   function outcome(g) {
-    const values = g.numbers.flatMap((n) => resultKeys.map((k) => (n.result || {})[k]).filter((v) => v !== undefined));
+    const values = g.numbers.flatMap((n) => resultKeys.map((k) => (n.result || {})[k]).filter((v) => v !== undefined && v !== 'na'));
     const good = values.filter(actionSucceeded).length;
     const failed = values.some((v) => v === false || v === 'timeout');
     const incomplete = values.some((v) => ['skipped', 'cancelled', 'undone'].includes(v));
@@ -978,6 +982,8 @@
           if (!A[k] || k === 'stop') continue;
           if (n.plan === 'marketing' && k !== 'optout') continue;
           if (k === 'report' && !n.inWindow) continue;
+          // WhatsApp's own opt-out exists only for senders it has tagged as marketing.
+          if (k === 'optout' && n.metaMarketing === false) { n.result.optout = 'na'; n.errors.optout = "WhatsApp only offers its opt-out for businesses that sent you marketing templates. This one hasn't."; continue; }
           n.result[k] = 'pending';
         }
       }
@@ -993,8 +999,8 @@
         }
       }
       for (const n of g.numbers) {
-        if (n.plan === 'keep' || resultKeys.some((k) => n.result[k] !== undefined)) continue;
-        n.result.kept = n.plan === 'marketing' ? 'mixed' : 'old'; n.plan = 'keep';
+        if (n.plan === 'keep' || resultKeys.some((k) => n.result[k] !== undefined && n.result[k] !== 'na')) continue;
+        n.result.kept = n.plan === 'marketing' ? 'mixed' : n.result.optout === 'na' ? 'na' : 'old'; n.plan = 'keep';
       }
     }
     const total = targets.reduce((c, g) => c + g.numbers.filter((n) => n.plan === 'full' || n.plan === 'marketing').length, 0);
@@ -1012,7 +1018,7 @@
           if (state.cancel) return false;
           label(what);
           const ok = await step(n, key, what, fn, ms);
-          if (ok) { if (n.result[key] !== 'already') sum[key]++; }
+          if (ok) { if (n.result[key] !== 'already' && n.result[key] !== 'na') sum[key]++; }
           else sum.failed++;
           await sleep(150);
           return ok;
@@ -1020,7 +1026,7 @@
         if (!state.cancel && n.result.optout === 'pending') {
           if (optoutDead) skip('optout', "WhatsApp's opt-out stopped responding earlier in this run.");
           else {
-            const ok = await act('optout', 'Opting out', async () => { const v = await stopMarketing(n.id); if (v === 'already') n.result.optout = 'already'; return v; });
+            const ok = await act('optout', 'Opting out', async () => { const v = await stopMarketing(n.id); if (v === 'already' || v === 'na') n.result.optout = v; if (v === 'na') n.errors.optout = "WhatsApp doesn't offer its own opt-out for this sender."; return v; });
             if (!ok && /unavailable|timeout/.test(n.errors.optout || '')) optoutDead = true;
           }
         }
@@ -1060,6 +1066,8 @@
             catch (e) { if (/already/i.test(String(e?.message || e))) { n.result.archive = 'already'; return; } throw e; }
           });
         }
+        // Nothing applied after all (the only planned action turned out not to be offered): left alone, not "not done".
+        if (!n.result.kept && !resultKeys.some((k) => n.result[k] !== undefined && n.result[k] !== 'na')) n.result.kept = n.plan === 'marketing' ? 'mixed' : 'na';
         const unstarted = !resultKeys.some((k) => actionSucceeded(n.result[k]) || n.result[k] === false || n.result[k] === 'timeout');
         if (state.cancel) {
           for (const k of resultKeys) if (n.result[k] === 'pending') n.result[k] = 'cancelled';
@@ -1849,13 +1857,15 @@
     const marketing = count((n) => n.plan === 'marketing' && numberSucceeded(n));
     const keptUpdates = count((n) => n.result.kept === 'updates' || n.result.kept === 'mixed');
     const keptOld = count((n) => n.result.kept === 'old');
-    const notDone = g.numbers.length - full - marketing - keptUpdates - keptOld;
+    const keptNa = count((n) => n.result.kept === 'na');
+    const notDone = g.numbers.length - full - marketing - keptUpdates - keptOld - keptNa;
     const one = g.numbers.length === 1;
     const parts = [
       full && !one ? `${full} bounced` : '',
       marketing ? (one ? 'Marketing opt-out only, updates keep coming' : `${marketing} opted out of marketing only`) : '',
       keptUpdates ? (one ? 'Sends you updates' : `${keptUpdates} left alone, sends you updates`) : '',
       keptOld ? (one ? 'Nothing recent to report' : `${keptOld} left alone, nothing recent`) : '',
+      keptNa ? (one ? "WhatsApp doesn't offer its opt-out for this sender" : `${keptNa} left alone, opt-out not offered`) : '',
       !one && notDone > 0 ? `${notDone} not done` : '',
     ].filter(Boolean).join(' · ');
     return `<span class="bz-outcome ${o.key}">${esc(o.label)}</span>${parts ? `<span class="bz-status-note">${esc(parts)}</span>` : ''}`;
@@ -1951,11 +1961,11 @@
 
   function renderResultTags(n) {
     if (!n.result) return '';
-    if (n.result.kept) return `<span class="bz-action-status"><span>No action</span><span class="bz-st">Left alone</span><small>${n.result.kept === 'mixed' ? 'This number also sends you updates, and no marketing-only action was available.' : n.result.kept === 'old' ? 'No message from this number in the chosen period, so there was nothing to report.' : 'This number sends you updates like orders, bookings or OTPs.'}</small></span>`;
+    if (n.result.kept) return `<span class="bz-action-status"><span>No action</span><span class="bz-st">Left alone</span><small>${n.result.kept === 'mixed' ? 'This number also sends you updates, and no marketing-only action was available.' : n.result.kept === 'old' ? 'No message from this number in the chosen period, so there was nothing to report.' : n.result.kept === 'na' ? "WhatsApp only offers its opt-out for businesses that sent you marketing templates, and nothing else was selected." : 'This number sends you updates like orders, bookings or OTPs.'}</small></span>`;
     const names = { optout: 'WhatsApp opt-out', stop: 'STOP reply', report: 'Report', block: 'Block', archive: 'Archive' };
     return resultKeys.map((k) => {
       const v = n.result[k]; if (v === undefined) return '';
-      const label = v === true ? 'Done' : v === 'already' ? 'Already done' : v === 'undone' ? 'Undone' : v === 'pending' ? 'Waiting' : v === 'running' ? 'Working…' : v === 'cancelled' ? 'Not run' : v === 'skipped' ? 'Skipped' : v === 'timeout' ? 'Timed out' : 'Failed';
+      const label = v === true ? 'Done' : v === 'already' ? 'Already done' : v === 'undone' ? 'Undone' : v === 'pending' ? 'Waiting' : v === 'running' ? 'Working…' : v === 'cancelled' ? 'Not run' : v === 'skipped' ? 'Skipped' : v === 'na' ? 'Not offered' : v === 'timeout' ? 'Timed out' : 'Failed';
       const cls = actionSucceeded(v) ? 'ok' : v === false || v === 'timeout' ? 'bad' : '';
       const reason = n.errors?.[k];
       const undo = k === 'block' && v === true && !state.running ? `<button class="bz-undo" data-act="unblock" data-id="${esc(n.id)}">Unblock</button>` : '';

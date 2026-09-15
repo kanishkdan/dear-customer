@@ -37,13 +37,14 @@ function harness() {
   // WhatsApp's switch for its own marketing opt-out, and the opt-out module behind it.
   // true: WhatsApp's switch is on. false: WhatsApp says no. 'none': no switch in sight, as on an unknown build.
   const gate = (mode) => { sandbox.window.require = mode === 'none' ? undefined : (n) => (n === 'WAWebMarketingMessagesUserFeedbackGatingUtils' ? { isMMOptOutEnabled: () => mode === true }
-    : n === 'WAWebOptOutBizAction' ? { optOutContact: async (c) => calls.push(['optout', c.id]) } : null); };
+    : n === 'WAWebOptOutBizAction' ? { optOutContact: async (c) => { if (refuse.has(c.id)) throw new Error('not-acceptable'); calls.push(['optout', c.id]); } } : null); };
+  const refuse = new Set();
   const send = (type, payload) => listeners.forEach((fn) => fn({ source: sandbox.window, data: { __bouncer: true, dir: 'to-page', type, payload } }));
-  return { ...api, WPP, calls, messages, cardText, opened, buttons, bodies, gate, send, sandbox,
+  return { ...api, WPP, calls, messages, cardText, opened, buttons, bodies, refuse, gate, send, sandbox,
     click: (act, key, v) => api.onClick({ target: { closest: () => ({ dataset: { act, key, v } }) } }) };
 }
 function group(name, count = 1) {
-  const nums = Array.from({ length: count }, (_, i) => ({ id: `${name}-${i}@c.us`, hash: `${name}-${i}-hash`, phone: '919999999999', ts: Math.floor(Date.now()/1000), inWindow: true, msgs: 1, category: 'promo' }));
+  const nums = Array.from({ length: count }, (_, i) => ({ id: `${name}-${i}@c.us`, hash: `${name}-${i}-hash`, phone: '919999999999', ts: Math.floor(Date.now()/1000), inWindow: true, msgs: 1, category: 'promo', metaMarketing: true }));
   return { key: name, name, kind: 'biz', promo: true, category: 'promo', checked: true, verified: true, active: nums, numbers: nums, msgs: count, blockedCount: 0 };
 }
 
@@ -236,4 +237,22 @@ test("the business's own unsubscribe keyword is used instead of STOP, and a prom
   assert.deepEqual(h.calls.filter((x) => x[0] === 'text').map((x) => [x[1], x[2]]), [[a.numbers[0].id, 'UNSUB'], [b.numbers[0].id, 'END']]);
   // A generic "reply STOP" is never sent to a number that also sends updates, and nothing is planned for it.
   assert.equal(c.numbers[0].result.stop, undefined); assert.equal(h.outcome(c).key, 'complete');
+});
+test("WhatsApp's opt-out is 'not offered', never 'failed', for senders WhatsApp hasn't tagged as marketing or refuses", async () => {
+  const h = harness(); h.gate(true); h.state.actions = { optout: true, block: true };
+  const a = group('Guessed'); a.numbers[0].metaMarketing = false;          // promo by keyword only: not planned
+  const b = group('Refused'); h.refuse.add(b.numbers[0].id);               // tagged, but the server says not-acceptable
+  const c = group('OptoutOnly'); c.numbers[0].metaMarketing = false; c.numbers[0].cls = 'promo';
+  h.state.groups = [a, b, c]; await h.run();
+  assert.equal(h.calls.filter((x) => x[0] === 'optout').length, 0);
+  assert.equal(a.numbers[0].result.optout, 'na'); assert.equal(a.numbers[0].result.block, true); assert.equal(h.outcome(a).key, 'complete');
+  assert.equal(b.numbers[0].result.optout, 'na'); assert.equal(h.outcome(b).key, 'complete'); assert.equal(h.state.results.failed, 0);
+  assert.match(h.renderResultTags(b.numbers[0]), /Not offered/); assert.doesNotMatch(h.renderDone(), /not done/);
+  assert.equal(h.state.results.optout, 0);
+});
+test('a number whose only selected action is an opt-out WhatsApp does not offer is left alone, not failed', async () => {
+  const h = harness(); h.gate(true); h.state.actions = { optout: true };
+  const a = group('Guessed'); a.numbers[0].metaMarketing = false; h.state.groups = [a]; await h.run();
+  assert.equal(a.numbers[0].result.kept, 'na'); assert.equal(h.outcome(a).key, 'stopped');
+  assert.match(h.renderDone(), /WhatsApp doesn(&#39;|')t offer its opt-out for this sender/);
 });
